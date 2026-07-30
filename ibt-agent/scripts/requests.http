@@ -1,0 +1,92 @@
+# IBT Agent API Testing Scripts
+# Start the server: uvicorn src.main:app --reload --port 8000
+
+### Health Check (Ping)
+GET http://localhost:8000/IbtAgent/v2/ping
+
+###
+
+### Get Current Mode
+GET http://localhost:8000/IbtAgent/v2/mode
+
+###
+
+### Set Mode to Direct Kendra
+POST http://localhost:8000/IbtAgent/v2/mode
+Content-Type: application/json
+
+{
+  "use_llm": false
+}
+
+###
+
+### Set Mode to LLM Enhanced
+POST http://localhost:8000/IbtAgent/v2/mode
+Content-Type: application/json
+
+{
+  "use_llm": true
+}
+
+###
+
+### Process Benefits Query (Direct Mode)
+POST http://localhost:8000/IbtAgent/v2/invocations
+Content-Type: application/json
+
+{
+  "userPrompt": "What are my dental benefits?",
+  "sessionId": "sess-001",
+  "context": {
+    "userName": "John Doe",
+    "userType": "member",
+    "productId": "1",
+    "source": "DXAIService",
+    "promptId": "p-123"
+  }
+}
+
+###
+
+### Process Vision Benefits Query
+POST http://localhost:8000/IbtAgent/v2/invocations
+Content-Type: application/json
+
+{
+  "userPrompt": "Do I have vision coverage?",
+  "sessionId": "sess-002",
+  "context": {
+    "userName": "Jane Smith",
+    "userType": "member",
+    "productId": "6",
+    "source": "DXAIService"
+  }
+}
+
+###
+
+### Process Medical Benefits Query
+POST http://localhost:8000/IbtAgent/v2/invocations
+Content-Type: application/json
+
+{
+  "userPrompt": "What medical services are covered under my plan?",
+  "sessionId": "sess-003",
+  "context": {
+    "userName": "Bob Johnson",
+    "userType": "member",
+    "productId": "7"
+  }
+}
+
+###
+
+### Test Error Handling - Invalid Request
+POST http://localhost:8000/IbtAgent/v2/invocations
+Content-Type: application/json
+
+{
+  "sessionId": "sess-004"
+  // Missing required userPrompt field
+}

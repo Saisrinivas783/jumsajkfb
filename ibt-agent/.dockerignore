@@ -1,0 +1,9 @@
+.env
+.env.*
+src/.env
+__pycache__
+*.pyc
+.pytest_cache
+tests/
+.git
+.gitignore

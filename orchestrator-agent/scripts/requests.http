@@ -1,0 +1,39 @@
+# uvicorn app:app --reload --port 8000
+# added above line for testing purpose
+### `Ping
+GET http://localhost:8000/OrchestratorAgent/v2/ping
+
+###
+
+### Invocation
+POST http://localhost:8000/OrchestratorAgent/v2/invocations
+Content-Type: application/json
+
+{
+  "userPrompt": "@@@@@@@@",
+  "sessionId": "11",
+  "context": {
+    "userName": "SAI",
+    "userType": "member",
+    "source": "IBT",
+    "promptId": "p-123",
+    "productId":"001"
+  }
+}
+
+# ## SAMPLE RESPONSE
+
+# {
+#   "success": true,
+#   "message": "",
+#   "timestamp": "2026-01-06T13:51:25.030338",
+#   "execution_time_ms": 4674.991130828857,
+#   "sessionId": "sess-001",
+#   "selectedTool": {
+#     "toolName": "IBTAgent",
+#     "confidence": 8.0,
+#     "reasoning": "The query is asking about dental benefits, which falls under the category of insurance benefit inquiries that the IBTAgent tool can handle."
+#   },
+#   "confidence": 8.0,
+#   "responseText": "Your insurance benefits include coverage for preventive care, hospitalization, and emergency services. Your current deductible is $1,500 with 80/20 coinsurance after deductible."
+# }

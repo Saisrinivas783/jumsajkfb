@@ -1,0 +1,41 @@
+tools:
+  - name: IBTAgent
+    description: Handles insurance benefit and coverage inquiries using plan brochure data
+      (coverages, you pay/cost/copay/coinsurance for preferred and non-preferred providers,
+      deductibles, benefit limits, plan rules). Cost and pricing questions (e.g. "how much
+      does X cost with insurance", "what do I pay for X") are IN SCOPE because the brochure
+      contains fixed you-pay amounts and percentages per service. Cannot answer account-specific
+      dynamic data (e.g. current balance, claims status, remaining deductible). Also answers
+      definitions and explanations of health care terms, medical procedures, processes,
+      clinical service levels, and healthcare classifications found in the brochure.
+    endpoint: http://ibt-agent:80/IbtAgent/v2/invocations
+
+    capabilities:
+      - benefit inquiries
+      - coverage questions
+      - policy information
+      - cost and you-pay inquiries
+      
+    parameters:
+      required:
+        - userPrompt
+        - userName
+      optional:
+        - policyNumber
+        - memberType
+
+    examples:
+      - prompt: "What are my dental benefits?"
+        reasoning: "User asking about specific benefit coverage"
+
+      - prompt: "Is physical therapy covered?"
+        reasoning: "Coverage inquiry for a specific service"
+
+      - prompt: "How much would left heart catheterization cost me with insurance?"
+        reasoning: "Cost question answered by the brochure's you-pay/coinsurance data for the procedure"
+
+      - prompt: "What is the copay for an MRI?"
+        reasoning: "You-pay cost inquiry for a specific service covered in the brochure"
+
+      - prompt: "What clinical insight does Aerobic Bacteria Culture provide during diagnosis?"
+        reasoning: "Medical procedure/test defined in the plan brochure"
