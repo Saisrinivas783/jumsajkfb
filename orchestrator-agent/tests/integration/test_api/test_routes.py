@@ -1,10 +1,11 @@
 """Integration tests for health and invocations routes."""
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.api.app import create_app
+from src.api.app import _lifespan, create_app
 from src.api.dependencies import get_orchestrator
 from src.schemas.api import InvocationResponse, AgentMetadata, MetadataItem
 
@@ -116,13 +117,49 @@ class TestCreateApp:
     """Tests for create_app factory."""
 
     def test_create_app_returns_fastapi_instance(self):
-        from fastapi import FastAPI
         app = create_app()
         assert isinstance(app, FastAPI)
 
     def test_create_app_has_title(self):
         app = create_app()
         assert app.title == "Orchestrator Agent"
+
+
+class TestLifespan:
+    """Tests for startup credential warmup behavior."""
+
+    @pytest.mark.asyncio
+    async def test_lifespan_warms_credentials_before_starting_refresh(self):
+        chat_models = MagicMock()
+        chat_models.settings.bedrock_role_arn = "arn:aws:iam::123456789012:role/bedrock"
+
+        with (
+            patch("src.api.app.get_orchestrator"),
+            patch("src.api.app.get_chat_models", return_value=chat_models),
+            patch("src.api.app.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
+        ):
+            async with _lifespan(FastAPI()):
+                mock_to_thread.assert_awaited_once_with(chat_models.refresh_credentials)
+                chat_models.start_credential_refresh.assert_called_once()
+
+            chat_models.stop_credential_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_lifespan_continues_when_initial_warmup_fails(self):
+        chat_models = MagicMock()
+        chat_models.settings.bedrock_role_arn = "arn:aws:iam::123456789012:role/bedrock"
+
+        with (
+            patch("src.api.app.get_orchestrator"),
+            patch("src.api.app.get_chat_models", return_value=chat_models),
+            patch("src.api.app.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
+        ):
+            mock_to_thread.side_effect = RuntimeError("sts unavailable")
+
+            async with _lifespan(FastAPI()):
+                chat_models.start_credential_refresh.assert_called_once()
+
+            chat_models.stop_credential_refresh.assert_called_once()
 
 
 class TestGetOrchestrator:

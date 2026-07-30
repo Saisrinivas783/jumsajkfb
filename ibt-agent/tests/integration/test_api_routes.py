@@ -64,8 +64,11 @@ class TestInvocationsRoute:
         # Check keyword arguments
         assert call_args.kwargs["user_prompt"] == "What are my dental benefits?"
         assert call_args.kwargs["session_id"] == "sess-001"
-        # Context should be None when not provided in request
-        assert call_args.kwargs["context"] is None
+        context = call_args.kwargs["context"]
+        assert context["userName"] == "test_user"
+        assert context["userType"] == "member"
+        assert context["source"] == "IBTPage"
+        assert context["productId"] == "6"
     
     def test_agent_receives_context_when_provided(self, client, mock_hybrid_agent):
         payload_with_context = {
@@ -74,7 +77,8 @@ class TestInvocationsRoute:
             "context": {
                 "userName": "John Doe",
                 "userType": "member",
-                "productId": "1"
+                "source": "IBTPage",
+                "productId": "9"
             }
         }
         response = client.post(f"{API_PREFIX}/invocations", json=payload_with_context)
@@ -88,26 +92,5 @@ class TestInvocationsRoute:
         context = call_args.kwargs["context"]
         assert context["userName"] == "John Doe"
         assert context["userType"] == "member"
-        assert context["productId"] == "1"
-
-class TestModeRoutes:
-    """Tests for mode switching endpoints."""
-    
-    def test_get_mode_returns_200(self, client):
-        response = client.get(f"{API_PREFIX}/mode")
-        assert response.status_code == 200
-    
-    def test_get_mode_returns_mode_info(self, client):
-        response = client.get(f"{API_PREFIX}/mode")
-        data = response.json()
-        assert "current_mode" in data
-        assert "kendra_index_id" in data
-        assert "aws_region" in data
-    
-    def test_set_mode_returns_200(self, client):
-        response = client.post(f"{API_PREFIX}/mode", json={"use_llm": False})
-        assert response.status_code == 200
-    
-    def test_set_mode_calls_agent(self, client, mock_hybrid_agent):
-        client.post(f"{API_PREFIX}/mode", json={"use_llm": False})
-        mock_hybrid_agent.set_mode.assert_called_once_with(False)
+        assert context["source"] == "IBTPage"
+        assert context["productId"] == "9"

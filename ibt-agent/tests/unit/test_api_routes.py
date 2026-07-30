@@ -69,7 +69,6 @@ class TestAppIntegration:
         assert "/IbtAgent/v2/invocations" in routes
         assert "/IbtAgent/v2/ping" in routes
         assert "/IbtAgent/v2/health" in routes
-        assert "/IbtAgent/v2/mode" in routes
     
     def test_app_openapi_schema(self):
         """Test OpenAPI schema generation."""
@@ -89,7 +88,6 @@ class TestAppIntegration:
         assert "/IbtAgent/v2/invocations" in paths
         assert "/IbtAgent/v2/ping" in paths
         assert "/IbtAgent/v2/health" in paths
-        assert "/IbtAgent/v2/mode" in paths
     
     def test_app_docs_endpoint(self):
         """Test that docs endpoint is accessible."""

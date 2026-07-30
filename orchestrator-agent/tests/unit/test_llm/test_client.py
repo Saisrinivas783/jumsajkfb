@@ -356,25 +356,21 @@ class TestGetChatModels:
     """Tests for get_chat_models singleton."""
 
     def test_get_chat_models_returns_same_instance(self):
-        import src.llm.client as mod
-        mod._chat_models = None
-
         from src.llm.client import get_chat_models, ChatModels
+        get_chat_models.cache_clear()
         a = get_chat_models()
         b = get_chat_models()
 
         assert a is b
         assert isinstance(a, ChatModels)
-        mod._chat_models = None
+        get_chat_models.cache_clear()
 
     def test_get_chat_models_creates_on_first_call(self):
-        import src.llm.client as mod
-        mod._chat_models = None
-
         from src.llm.client import get_chat_models, ChatModels
+        get_chat_models.cache_clear()
         result = get_chat_models()
 
         assert isinstance(result, ChatModels)
-        mod._chat_models = None
+        get_chat_models.cache_clear()
 
 

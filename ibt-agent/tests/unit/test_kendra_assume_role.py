@@ -2,6 +2,8 @@
 Unit tests for Kendra assume role functionality.
 """
 
+from datetime import datetime, timezone, timedelta
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from botocore.exceptions import ClientError
@@ -43,7 +45,7 @@ class TestKendraAssumeRole:
         # Verify STS call
         mock_sts.assume_role.assert_called_once_with(
             RoleArn='arn:aws:iam::054940911799:role/ibt-ai-index-role',
-            RoleSessionName='ibt-agent-kendra-session',
+            RoleSessionName=self.kendra_service.settings.kendra_session_name,
             DurationSeconds=3600
         )
         
@@ -126,6 +128,81 @@ class TestKendraAssumeRole:
         assert client == mock_kendra
 
     @patch('src.services.kendra_service.boto3.client')
+    def test_get_kendra_client_uses_valid_cached_client_on_transient_refresh_failure(self, mock_boto_client):
+        """Transient STS failures should not break traffic while cached credentials are still valid."""
+        mock_sts = Mock()
+        cached_client = Mock()
+
+        def boto_client_side_effect(service_name, **kwargs):
+            if service_name == 'sts':
+                return mock_sts
+            return Mock()
+
+        mock_boto_client.side_effect = boto_client_side_effect
+        mock_sts.assume_role.side_effect = ClientError(
+            {'Error': {'Code': 'ThrottlingException', 'Message': 'Rate exceeded'}},
+            'AssumeRole'
+        )
+
+        self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
+        self.kendra_service._client = cached_client
+        self.kendra_service._credentials_expiration = datetime.now(timezone.utc) + timedelta(minutes=2)
+
+        client = self.kendra_service._get_kendra_client()
+
+        assert client is cached_client
+        mock_sts.assume_role.assert_called_once()
+        kendra_calls = [
+            call for call in mock_boto_client.call_args_list
+            if call.args and call.args[0] == 'kendra'
+        ]
+        assert kendra_calls == []
+
+    @patch('src.services.kendra_service.boto3.client')
+    def test_get_kendra_client_does_not_fallback_to_default_credentials(self, mock_boto_client):
+        """Configured role assumption failures should not silently create a default Kendra client."""
+        mock_sts = Mock()
+
+        def boto_client_side_effect(service_name, **kwargs):
+            if service_name == 'sts':
+                return mock_sts
+            return Mock()
+
+        mock_boto_client.side_effect = boto_client_side_effect
+        mock_sts.assume_role.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDenied', 'Message': 'Access denied'}},
+            'AssumeRole'
+        )
+
+        self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
+        self.kendra_service._client = None
+
+        with pytest.raises(RuntimeError, match="Role assumption failed: AccessDenied"):
+            self.kendra_service._get_kendra_client()
+
+        kendra_calls = [
+            call for call in mock_boto_client.call_args_list
+            if call.args and call.args[0] == 'kendra'
+        ]
+        assert kendra_calls == []
+
+    @patch('src.services.kendra_service.threading.Thread')
+    def test_start_credential_refresh_starts_single_daemon_thread(self, mock_thread_cls):
+        """Background refresh should run as a single daemon worker per instance."""
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True
+        mock_thread_cls.return_value = mock_thread
+
+        self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
+
+        self.kendra_service.start_credential_refresh()
+        self.kendra_service.start_credential_refresh()
+
+        mock_thread_cls.assert_called_once()
+        assert mock_thread_cls.call_args.kwargs['daemon'] is True
+        mock_thread.start.assert_called_once()
+
+    @patch('src.services.kendra_service.boto3.client')
     def test_get_kendra_client_without_role_assumption(self, mock_boto_client):
         """Test Kendra client creation without role assumption."""
         mock_kendra = Mock()
@@ -171,23 +248,20 @@ class TestKendraAssumeRole:
         assert client1 == client2 == mock_kendra
 
     @patch('src.services.kendra_service.boto3.client')
-    def test_search_with_assume_role(self, mock_boto_client):
-        """Test search functionality with assume role."""
-        # Mock STS and Kendra clients
+    def test_get_ncct_ids_by_product_with_assume_role(self, mock_boto_client):
+        """Test product-filtered Kendra query with assume role."""
         mock_sts = Mock()
         mock_kendra = Mock()
-        
+
         def boto_client_side_effect(service_name, **kwargs):
             if service_name == 'sts':
                 return mock_sts
-            elif service_name == 'kendra':
+            if service_name == 'kendra':
                 return mock_kendra
             return Mock()
-        
+
         mock_boto_client.side_effect = boto_client_side_effect
-        
-        # Mock successful role assumption
-        mock_response = {
+        mock_sts.assume_role.return_value = {
             'Credentials': {
                 'AccessKeyId': 'ASIA123456789',
                 'SecretAccessKey': 'secret123',
@@ -195,39 +269,24 @@ class TestKendraAssumeRole:
                 'Expiration': '2024-01-01T12:00:00Z'
             }
         }
-        mock_sts.assume_role.return_value = mock_response
-        
-        # Mock Kendra search response
         mock_kendra.query.return_value = {
             'ResultItems': [
                 {
                     'DocumentAttributes': [
-                        {'Key': 'NCCT_ID', 'Value': {'StringValue': 'NCCT123'}},
-                        {'Key': 'Service_Name', 'Value': {'StringValue': 'Test Service'}}
+                        {'Key': 'NCCTID', 'Value': {'StringValue': 'NCCT123'}},
                     ],
-                    'DocumentExcerpt': {'Text': 'Test excerpt'},
-                    'ScoreAttributes': {'ScoreConfidence': 'HIGH'}
+                    'ScoreAttributes': {'ScoreConfidence': 'HIGH'},
                 }
             ]
         }
-        
-        # Set up role ARN
+
         self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
-        
-        # Reset client
         self.kendra_service._client = None
-        
-        # Test search
-        result = self.kendra_service.search('test query')
-        
-        # Verify role assumption occurred
+
+        result = self.kendra_service.get_ncct_ids_by_product('test query', '1')
+
         mock_sts.assume_role.assert_called_once()
-        
-        # Verify search was successful
-        assert result['success'] is True
-        assert len(result['results']) == 1
-        assert result['results'][0]['ncct_id'] == 'NCCT123'
-        assert result['results'][0]['service_name'] == 'Test Service'
+        assert result == ['NCCT123']
 
     def test_boto_config_creation(self):
         """Test boto configuration creation."""

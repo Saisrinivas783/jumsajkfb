@@ -2,6 +2,8 @@
 Unit tests for Bedrock assume role functionality in ChatModels.
 """
 
+from datetime import datetime, timezone, timedelta
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from botocore.exceptions import ClientError
@@ -140,6 +142,71 @@ class TestBedrockAssumeRole:
         assert bedrock_call[1]['aws_session_token'] == 'token123'
         
         assert client == mock_bedrock
+
+    @patch('src.llm.client.boto3.client')
+    def test_get_bedrock_client_uses_valid_cached_client_on_transient_refresh_failure(self, mock_boto_client):
+        """Transient STS failures should not break traffic while cached credentials are still valid."""
+        mock_sts = Mock()
+        cached_client = Mock()
+
+        def boto_client_side_effect(service_name=None, **kwargs):
+            if service_name == 'sts':
+                return mock_sts
+            return Mock()
+
+        mock_boto_client.side_effect = boto_client_side_effect
+        mock_sts.assume_role.side_effect = ClientError(
+            {'Error': {'Code': 'ThrottlingException', 'Message': 'Rate exceeded'}},
+            'AssumeRole'
+        )
+
+        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
+        self.chat_models._client = cached_client
+        self.chat_models._credentials_expiration = datetime.now(timezone.utc) + timedelta(minutes=2)
+
+        client = self.chat_models._get_bedrock_client()
+
+        assert client is cached_client
+        mock_sts.assume_role.assert_called_once()
+        bedrock_calls = [
+            call for call in mock_boto_client.call_args_list
+            if call.kwargs.get('service_name') == 'bedrock-runtime'
+        ]
+        assert bedrock_calls == []
+
+    @patch('src.llm.client.boto3.client')
+    def test_get_bedrock_client_raises_non_transient_refresh_failure(self, mock_boto_client):
+        """Non-retryable STS failures should not be hidden by a cached client."""
+        mock_sts = Mock()
+        cached_client = Mock()
+        mock_boto_client.return_value = mock_sts
+        mock_sts.assume_role.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDenied', 'Message': 'Access denied'}},
+            'AssumeRole'
+        )
+
+        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
+        self.chat_models._client = cached_client
+        self.chat_models._credentials_expiration = datetime.now(timezone.utc) + timedelta(minutes=2)
+
+        with pytest.raises(RuntimeError, match="Role assumption failed: AccessDenied"):
+            self.chat_models._get_bedrock_client()
+
+    @patch('src.llm.client.threading.Thread')
+    def test_start_credential_refresh_starts_single_daemon_thread(self, mock_thread_cls):
+        """Background refresh should run as a single daemon worker per instance."""
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True
+        mock_thread_cls.return_value = mock_thread
+
+        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
+
+        self.chat_models.start_credential_refresh()
+        self.chat_models.start_credential_refresh()
+
+        mock_thread_cls.assert_called_once()
+        assert mock_thread_cls.call_args.kwargs['daemon'] is True
+        mock_thread.start.assert_called_once()
 
     @patch('src.llm.client.boto3.client')
     def test_get_bedrock_client_without_role_assumption(self, mock_boto_client):

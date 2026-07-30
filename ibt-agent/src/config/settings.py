@@ -16,7 +16,6 @@ class IBTSettings(BaseSettings):
     IBT Agent configuration settings.
 
     All settings can be overridden via environment variables.
-    Environment variables should be prefixed based on the setting group.
     """
 
     model_config = SettingsConfigDict(
@@ -26,16 +25,10 @@ class IBTSettings(BaseSettings):
         extra="ignore",
     )
 
-    # Tool Registry
-    registry_path: str = Field(
-        default="src/tools/definitions/tools.yaml",
-        description="Path to tools registry YAML file"
-    )
-
     # AWS Configuration
     aws_region: str = Field(
         default="us-east-1",
-        description="AWS region for Bedrock and other services"
+        description="AWS region for Kendra and other services"
     )
     kendra_index_id: str = Field(
         default="",
@@ -62,47 +55,6 @@ class IBTSettings(BaseSettings):
         gt=0,
         le=100,
         description="Number of documents to retrieve from Kendra per query"
-    )
-
-    # Bedrock LLM Configuration
-    bedrock_model_id: str = Field(
-        default="us.meta.llama3-3-70b-instruct-v1:0",
-        description="Default Bedrock model ID"
-    )
-    bedrock_temperature: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        description="LLM temperature (0.0 = deterministic, 1.0 = creative)"
-    )
-    bedrock_max_tokens: int = Field(
-        default=1024,
-        gt=0,
-        description="Maximum tokens in LLM response"
-    )
-
-    # Bedrock Role Configuration
-    bedrock_session_name: str = Field(
-        default="ibt-agent-bedrock",
-        description="Session name for Bedrock role assumption"
-    )
-    bedrock_role_duration: int = Field(
-        default=3600,
-        description="Bedrock role session duration in seconds (1 hour)"
-    )
-
-    # Bedrock Timeout Configuration
-    bedrock_read_timeout: int = Field(
-        default=300,
-        description="Read timeout in seconds for Bedrock API calls"
-    )
-    bedrock_connect_timeout: int = Field(
-        default=10,
-        description="Connection timeout in seconds for Bedrock API calls"
-    )
-    bedrock_max_retries: int = Field(
-        default=3,
-        description="Maximum retry attempts for Bedrock API calls"
     )
 
     # DXAIService Configuration

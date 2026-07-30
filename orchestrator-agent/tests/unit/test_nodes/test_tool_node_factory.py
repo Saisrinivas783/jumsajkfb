@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from src.graph.nodes.tool_node_factory import create_tool_node
+from src.graph.nodes.tool_node_factory import _call_tool_api, create_tool_node
 from src.schemas.state import OrchestratorState
 from src.schemas.tools import SelectedTool, ToolResult, ErrorInfo
 from src.schemas.registry import ToolDefinition, ToolParameters
@@ -89,6 +89,33 @@ class TestCreateToolNode:
         assert ibt_node.__name__ == "IBTAgent_node"
         assert claims_node.__name__ == "ClaimsAgent_node"
         assert ibt_node != claims_node
+
+    @patch('src.graph.nodes.tool_node_factory.httpx.Client')
+    def test_call_tool_api_sends_context_product_id(self, mock_client_cls, mock_state_with_tool):
+        """Test that IBT receives the orchestrator context.productId field."""
+        response = MagicMock()
+        response.json.return_value = {"responseText": ["NCCT123"], "metadata": []}
+        response.raise_for_status.return_value = None
+
+        client = MagicMock()
+        client.post.return_value = response
+        mock_client_cls.return_value.__enter__.return_value = client
+
+        response_text, metadata = _call_tool_api(
+            "IBTAgent",
+            "http://localhost:8001/invocations",
+            mock_state_with_tool,
+            "dental coverage benefits",
+        )
+
+        payload = client.post.call_args.kwargs["json"]
+        assert payload["userPrompt"] == "dental coverage benefits"
+        assert payload["sessionId"] == "test-session-123"
+        assert payload["context"]["productId"] == "PROD-001"
+        assert payload["context"]["source"] == "DXAIService"
+        assert payload["context"]["promptId"] == "p-123"
+        assert response_text == ["NCCT123"]
+        assert metadata == []
 
     @patch('src.graph.nodes.tool_node_factory._call_tool_api')
     def test_tool_node_handles_timeout_error(self, mock_call, ibt_tool_def, mock_state_with_tool):

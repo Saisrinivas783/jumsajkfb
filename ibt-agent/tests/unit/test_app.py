@@ -3,7 +3,8 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from src.api.app import create_app
+from unittest.mock import AsyncMock, MagicMock, patch
+from src.api.app import _lifespan, create_app
 from src.config.constants import SERVICE_NAME, SERVICE_VERSION, API_PREFIX
 
 class TestCreateApp:
@@ -105,3 +106,40 @@ class TestCreateApp:
         client = TestClient(app)
         response = client.get(f"{API_PREFIX}/ping")
         assert response.status_code == 200
+
+
+class TestLifespan:
+    """Tests for startup credential warmup behavior."""
+
+    @pytest.mark.asyncio
+    async def test_lifespan_warms_kendra_before_starting_refresh(self):
+        settings = MagicMock(kendra_role_arn="arn:aws:iam::123456789012:role/kendra")
+        kendra_service = MagicMock()
+
+        with (
+            patch("src.api.app.get_settings", return_value=settings),
+            patch("src.api.app.get_kendra_service", return_value=kendra_service),
+            patch("src.api.app.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
+        ):
+            async with _lifespan(FastAPI()):
+                mock_to_thread.assert_awaited_once_with(kendra_service.refresh_credentials)
+                kendra_service.start_credential_refresh.assert_called_once()
+
+            kendra_service.stop_credential_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_lifespan_continues_when_initial_kendra_warmup_fails(self):
+        settings = MagicMock(kendra_role_arn="arn:aws:iam::123456789012:role/kendra")
+        kendra_service = MagicMock()
+
+        with (
+            patch("src.api.app.get_settings", return_value=settings),
+            patch("src.api.app.get_kendra_service", return_value=kendra_service),
+            patch("src.api.app.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
+        ):
+            mock_to_thread.side_effect = RuntimeError("sts unavailable")
+
+            async with _lifespan(FastAPI()):
+                kendra_service.start_credential_refresh.assert_called_once()
+
+            kendra_service.stop_credential_refresh.assert_called_once()
