@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI
 
-from src.api.routes import health, invocations, mode
+from src.api.routes import health, invocations
 from src.config.constants import SERVICE_NAME, SERVICE_DESCRIPTION, SERVICE_VERSION, API_PREFIX
 
 
@@ -17,6 +17,5 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(health.router, prefix=API_PREFIX, tags=["Health"])
     app.include_router(invocations.router, prefix=API_PREFIX, tags=["Invocations"])
-    app.include_router(mode.router, prefix=API_PREFIX, tags=["Mode"])
 
     return app

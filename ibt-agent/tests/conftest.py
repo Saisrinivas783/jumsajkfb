@@ -82,12 +82,6 @@ def mock_hybrid_agent():
         "responseText": "Here are your benefits: <a href='NCCT123'>Dental Coverage</a>",
         "success": True,
         "execution_time_ms": 250.5,
-        "timestamp": "2024-01-15T10:30:00Z",
-        "mode": "llm_enhanced"
-    }
-    mock.get_mode_info.return_value = {
-        "current_mode": "llm_enhanced",
-        "kendra_index_id": "test-index",
-        "aws_region": "us-east-1"
+        "timestamp": "2024-01-15T10:30:00Z"
     }
     return mock

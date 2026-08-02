@@ -45,21 +45,11 @@ class InvocationResponse(BaseModel):
 
     session_id: str = Field(..., alias="sessionId")
     confidence: float = Field(0.0, ge=0.0, le=10.0)
-    response_text: Union[str, List[str]] = Field("", alias="responseText", description="Response text as string (LLM mode) or array of NCCT IDs (Direct Kendra mode)")
+    response_text: Union[str, List[str]] = Field("", alias="responseText", description="Response text as an array of NCCT IDs")
     success: bool = True
     message: str = ""
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     execution_time_ms: float = 0.0
-
-
-# =============================================================================
-# Mode Request (POST /mode)
-# =============================================================================
-
-class ModeRequest(BaseModel):
-    """Request body for mode switching endpoint."""
-    
-    use_llm: bool = Field(..., description="Whether to use LLM-enhanced mode")
 
 
 # =============================================================================

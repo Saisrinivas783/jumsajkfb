@@ -6,7 +6,6 @@ from pydantic import ValidationError
 from src.schemas.api import (
     InvocationRequest,
     InvocationResponse,
-    ModeRequest,
     HealthResponse
 )
 
@@ -144,33 +143,6 @@ class TestInvocationResponse:
         assert response.confidence == 0.0
         assert "unavailable" in response.response_text
         assert "error" in response.message
-
-class TestModeRequest:
-    """Tests for ModeRequest schema."""
-    
-    def test_mode_request_valid(self):
-        """Test valid ModeRequest creation."""
-        request = ModeRequest(use_llm=True)
-        assert request.use_llm is True
-        
-        request = ModeRequest(use_llm=False)
-        assert request.use_llm is False
-    
-    def test_mode_request_missing_use_llm(self):
-        """Test ModeRequest requires use_llm."""
-        with pytest.raises(ValidationError):
-            ModeRequest()
-    
-    def test_mode_request_invalid_type(self):
-        """Test ModeRequest validates use_llm type."""
-        # Pydantic v2 is more lenient with type coercion
-        # Test with clearly invalid types that can't be coerced
-        with pytest.raises(ValidationError):
-            ModeRequest(use_llm=[])
-        
-        with pytest.raises(ValidationError):
-            ModeRequest(use_llm={})
-
 
 class TestHealthResponse:
     """Tests for HealthResponse schema."""

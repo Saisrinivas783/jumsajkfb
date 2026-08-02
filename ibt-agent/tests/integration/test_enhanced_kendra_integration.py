@@ -122,8 +122,7 @@ class TestEnhancedKendraIntegration:
         mock_get_kendra_service.return_value = MagicMock()
         
         agent = HybridIBTAgent()
-        agent.use_llm = False
-        
+
         # Provide context with productId
         context = {'productId': '1'}
         result = agent._process_direct_kendra("What are my benefits for blue focus x-ray fehb?", context)

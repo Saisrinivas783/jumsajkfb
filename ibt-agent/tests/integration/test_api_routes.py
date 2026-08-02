@@ -89,25 +89,3 @@ class TestInvocationsRoute:
         assert context["userName"] == "John Doe"
         assert context["userType"] == "member"
         assert context["productId"] == "1"
-
-class TestModeRoutes:
-    """Tests for mode switching endpoints."""
-    
-    def test_get_mode_returns_200(self, client):
-        response = client.get(f"{API_PREFIX}/mode")
-        assert response.status_code == 200
-    
-    def test_get_mode_returns_mode_info(self, client):
-        response = client.get(f"{API_PREFIX}/mode")
-        data = response.json()
-        assert "current_mode" in data
-        assert "kendra_index_id" in data
-        assert "aws_region" in data
-    
-    def test_set_mode_returns_200(self, client):
-        response = client.post(f"{API_PREFIX}/mode", json={"use_llm": False})
-        assert response.status_code == 200
-    
-    def test_set_mode_calls_agent(self, client, mock_hybrid_agent):
-        client.post(f"{API_PREFIX}/mode", json={"use_llm": False})
-        mock_hybrid_agent.set_mode.assert_called_once_with(False)

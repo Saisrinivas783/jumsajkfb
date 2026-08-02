@@ -5,11 +5,10 @@ API_PREFIX = "/IbtAgent/v2"
 INVOCATIONS_ENDPOINT = "/invocations"
 PING_ENDPOINT = "/ping"
 HEALTH_ENDPOINT = "/health"
-MODE_ENDPOINT = "/mode"
 
 # Service Information
 SERVICE_NAME = "IBT Agent - Hybrid"
-SERVICE_DESCRIPTION = "Intelligent benefits inquiry service with configurable LLM/Direct modes"
+SERVICE_DESCRIPTION = "Intelligent benefits inquiry service using direct Kendra search"
 SERVICE_VERSION = "2.0.0"
 
 # HTTP Status Messages
