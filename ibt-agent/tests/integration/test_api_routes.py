@@ -39,17 +39,29 @@ class TestHealthRoute:
 
 class TestInvocationsRoute:
     """Tests for POST /IbtAgent/v2/invocations."""
-    
-    def test_valid_invocation_returns_200(self, client, valid_query_payload):
-        response = client.post(f"{API_PREFIX}/invocations", json=valid_query_payload)
+
+    @pytest.fixture
+    def valid_payload_with_context(self, valid_query_payload):
+        """valid_query_payload plus the now-required context field."""
+        return {
+            **valid_query_payload,
+            "context": {
+                "userName": "John Doe",
+                "userType": "member",
+                "productId": "1"
+            }
+        }
+
+    def test_valid_invocation_returns_200(self, client, valid_payload_with_context):
+        response = client.post(f"{API_PREFIX}/invocations", json=valid_payload_with_context)
         assert response.status_code == 200
-    
-    def test_valid_invocation_calls_agent(self, client, mock_hybrid_agent, valid_query_payload):
-        client.post(f"{API_PREFIX}/invocations", json=valid_query_payload)
+
+    def test_valid_invocation_calls_agent(self, client, mock_hybrid_agent, valid_payload_with_context):
+        client.post(f"{API_PREFIX}/invocations", json=valid_payload_with_context)
         mock_hybrid_agent.process_query.assert_called_once()
-    
-    def test_valid_invocation_response_structure(self, client, valid_query_payload):
-        response = client.post(f"{API_PREFIX}/invocations", json=valid_query_payload)
+
+    def test_valid_invocation_response_structure(self, client, valid_payload_with_context):
+        response = client.post(f"{API_PREFIX}/invocations", json=valid_payload_with_context)
         data = response.json()
         assert "sessionId" in data
         assert "confidence" in data
@@ -58,14 +70,9 @@ class TestInvocationsRoute:
         assert "execution_time_ms" in data
         assert "timestamp" in data
     
-    def test_agent_receives_correct_request(self, client, mock_hybrid_agent, valid_query_payload):
-        client.post(f"{API_PREFIX}/invocations", json=valid_query_payload)
-        call_args = mock_hybrid_agent.process_query.call_args
-        # Check keyword arguments
-        assert call_args.kwargs["user_prompt"] == "What are my dental benefits?"
-        assert call_args.kwargs["session_id"] == "sess-001"
-        # Context should be None when not provided in request
-        assert call_args.kwargs["context"] is None
+    def test_invocation_without_context_returns_422(self, client, valid_query_payload):
+        response = client.post(f"{API_PREFIX}/invocations", json=valid_query_payload)
+        assert response.status_code == 422
     
     def test_agent_receives_context_when_provided(self, client, mock_hybrid_agent):
         payload_with_context = {

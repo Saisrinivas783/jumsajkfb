@@ -51,6 +51,19 @@ class TestDirectKendraMode:
         assert 'DENTAL_002' in response_text
         assert result['confidence'] == 8.0
 
+    @patch('src.services.kendra_service.get_kendra_service')
+    @patch('src.agent.hybrid_ibt.get_settings')
+    def test_process_direct_kendra_requires_product_id(self, mock_settings, mock_get_kendra_service):
+        mock_settings.return_value.kendra_role_arn = None
+        mock_settings.return_value.aws_region = 'us-east-1'
+        mock_settings.return_value.kendra_index_id = 'test-index'
+        mock_get_kendra_service.return_value = MagicMock()
+
+        agent = HybridIBTAgent()
+
+        with pytest.raises(KeyError):
+            agent._process_direct_kendra("dental benefits", {})
+
 class TestProcessQuery:
     """Tests for main process_query method."""
 

@@ -13,10 +13,8 @@ def invocations(
     agent: HybridIBTAgent = Depends(get_ibt),
 ):
     """Process benefit and coverage inquiries per FEPOC specification."""
-    # Convert context to dict if present
-    context_dict = payload.context.model_dump() if payload.context else None
-    
-    # Convert HybridIBTAgent response to InvocationResponse format
+    context_dict = payload.context.model_dump()
+
     result = agent.process_query(
         user_prompt=payload.user_prompt,
         session_id=payload.session_id,

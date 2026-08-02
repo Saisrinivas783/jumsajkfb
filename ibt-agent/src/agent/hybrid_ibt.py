@@ -1,5 +1,5 @@
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from src.config.messages import get_message
 from src.config.settings import get_settings
 from src.services.kendra_service import get_ncct_ids_by_product, QueryLimitExceededError
@@ -22,14 +22,10 @@ class HybridIBTAgent:
         self.kendra_index_id = self.settings.kendra_index_id
         self.aws_region = self.settings.aws_region
 
-    def process_query(self, user_prompt: str, session_id: str, context: Optional[Dict] = None) -> Dict[str, Any]:
+    def process_query(self, user_prompt: str, session_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
-        # Log context information
-        if context:
-            logger.info(f"Processing query with context: userName={context.get('userName')}, userType={context.get('userType')}, productId={context.get('productId')}, source={context.get('source')}")
-        else:
-            logger.info("Processing query without context")
+        logger.info(f"Processing query with context: userName={context.get('userName')}, userType={context.get('userType')}, productId={context.get('productId')}, source={context.get('source')}")
 
         try:
             result = self._process_direct_kendra(user_prompt, context)
@@ -75,15 +71,8 @@ class HybridIBTAgent:
                         response["sessionId"], response["success"], response["responseText"])
             return response
 
-    def _process_direct_kendra(self, user_prompt: str, context: Optional[Dict] = None) -> Dict[str, Any]:
-        # Extract product ID from context with fallback to default
-        product_id = "1"  # Default to FEHB Standard plan
-        if context:
-            # Handle both camelCase (from orchestrator) and snake_case (from tests)
-            product_id = context.get('productId') or context.get('product_id') or "1"
-            logger.info(f"Using product ID from context: {product_id}")
-        else:
-            logger.warning(f"No product ID in context, using default: {product_id}")
+    def _process_direct_kendra(self, user_prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        product_id = context['productId']
 
         logger.info(f"Processing direct Kendra query with product ID: {product_id}")
 

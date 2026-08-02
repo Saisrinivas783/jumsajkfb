@@ -33,7 +33,7 @@ class InvocationRequest(BaseModel):
 
     session_id: str = Field(..., alias="sessionId", description="Conversation session ID")
     user_prompt: str = Field(..., alias="userPrompt", description="User's question or request")
-    context: Optional[InvocationContext] = Field(None, description="Context information from orchestrator")
+    context: InvocationContext = Field(..., description="Context information from orchestrator")
 
 
 class InvocationResponse(BaseModel):

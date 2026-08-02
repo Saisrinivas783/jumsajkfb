@@ -16,52 +16,73 @@ class TestInvocationRequest:
         """Test valid InvocationRequest creation."""
         request = InvocationRequest(
             sessionId="session-123",
-            userPrompt="What are my benefits?"
+            userPrompt="What are my benefits?",
+            context={"userName": "John", "userType": "member", "productId": "1"}
         )
-        
+
         assert request.session_id == "session-123"
         assert request.user_prompt == "What are my benefits?"
-    
+
     def test_invocation_request_aliases(self):
         """Test InvocationRequest field aliases."""
         request = InvocationRequest(
             session_id="session-123",
-            user_prompt="Test prompt"
+            user_prompt="Test prompt",
+            context={"userName": "John", "userType": "member", "productId": "1"}
         )
-        
+
         assert request.session_id == "session-123"
         assert request.user_prompt == "Test prompt"
-    
+
     def test_invocation_request_missing_session_id(self):
         """Test InvocationRequest requires session_id."""
         with pytest.raises(ValidationError):
             InvocationRequest(userPrompt="Test")
-    
+
     def test_invocation_request_missing_user_prompt(self):
         """Test InvocationRequest requires user_prompt."""
         with pytest.raises(ValidationError):
             InvocationRequest(sessionId="session-123")
-    
+
+    def test_invocation_request_missing_context(self):
+        """Test InvocationRequest requires context."""
+        with pytest.raises(ValidationError):
+            InvocationRequest(
+                sessionId="session-123",
+                userPrompt="Test"
+            )
+
+    def test_invocation_request_requires_product_id_in_context(self):
+        """Test InvocationRequest requires productId inside context."""
+        with pytest.raises(ValidationError):
+            InvocationRequest(
+                sessionId="session-123",
+                userPrompt="Test",
+                context={"userName": "John", "userType": "member"}
+            )
+
     def test_invocation_request_empty_values(self):
         """Test InvocationRequest with empty values."""
         request = InvocationRequest(
             sessionId="",
-            userPrompt=""
+            userPrompt="",
+            context={"userName": "John", "userType": "member", "productId": "1"}
         )
-        
+
         assert request.session_id == ""
         assert request.user_prompt == ""
-    
+
     def test_invocation_request_long_values(self):
         """Test InvocationRequest with long values."""
         long_session = "session-" + "x" * 1000
         long_prompt = "What are my benefits? " * 100
-        
+
         request = InvocationRequest(
             sessionId=long_session,
-            userPrompt=long_prompt
+            userPrompt=long_prompt,
+            context={"userName": "John", "userType": "member", "productId": "1"}
         )
-        
+
         assert request.session_id == long_session
         assert request.user_prompt == long_prompt
 
@@ -177,9 +198,10 @@ class TestSchemaIntegration:
         """Test InvocationRequest JSON serialization."""
         request = InvocationRequest(
             sessionId="session-123",
-            userPrompt="Test prompt"
+            userPrompt="Test prompt",
+            context={"userName": "John", "userType": "member", "productId": "1"}
         )
-        
+
         json_data = request.model_dump(by_alias=True)
         
         assert json_data["sessionId"] == "session-123"
@@ -215,7 +237,8 @@ class TestSchemaIntegration:
         # Test InvocationRequest deserialization
         request_data = {
             "sessionId": "session-456",
-            "userPrompt": "Deserialized prompt"
+            "userPrompt": "Deserialized prompt",
+            "context": {"userName": "John", "userType": "member", "productId": "1"}
         }
         
         request = InvocationRequest(**request_data)
@@ -240,10 +263,18 @@ class TestSchemaIntegration:
     def test_config_populate_by_name(self):
         """Test that populate_by_name config works correctly."""
         # Test with alias
-        request1 = InvocationRequest(sessionId="test", userPrompt="test")
-        
+        request1 = InvocationRequest(
+            sessionId="test",
+            userPrompt="test",
+            context={"userName": "John", "userType": "member", "productId": "1"}
+        )
+
         # Test with field name
-        request2 = InvocationRequest(session_id="test", user_prompt="test")
+        request2 = InvocationRequest(
+            session_id="test",
+            user_prompt="test",
+            context={"userName": "John", "userType": "member", "productId": "1"}
+        )
         
         assert request1.session_id == request2.session_id
         assert request1.user_prompt == request2.user_prompt
