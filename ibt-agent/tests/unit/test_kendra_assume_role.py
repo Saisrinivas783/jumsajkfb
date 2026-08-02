@@ -43,7 +43,7 @@ class TestKendraAssumeRole:
         # Verify STS call
         mock_sts.assume_role.assert_called_once_with(
             RoleArn='arn:aws:iam::054940911799:role/ibt-ai-index-role',
-            RoleSessionName='ibt-agent-kendra',
+            RoleSessionName='ibt-agent-kendra-session',
             DurationSeconds=3600
         )
         
@@ -173,7 +173,7 @@ class TestKendraAssumeRole:
     def test_boto_config_creation(self):
         """Test boto configuration creation."""
         config = self.kendra_service._get_boto_config()
-
+        
         assert config is not None
         # Verify config has expected timeout settings
         assert hasattr(config, 'read_timeout')
