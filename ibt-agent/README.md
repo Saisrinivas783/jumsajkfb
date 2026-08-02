@@ -10,7 +10,6 @@ IBT Agent is an intelligent benefits inquiry service that handles insurance bene
 
 - **Direct Kendra Search**: AWS Kendra semantic search with NCCT_ID extraction
 - **FEPOC API Compliance**: Proper naming conventions and response formats
-- **HTML Link Generation**: Creates `<a href='{{NCCT_ID}}'>{{Service_Name}}</a>` format
 - **Simple Logging**: Self-contained logging without external dependencies
 
 ## Installation
@@ -57,7 +56,8 @@ Process insurance benefits queries using direct Kendra search.
   "sessionId": "session-123",
   "context": {
     "userName": "John Doe",
-    "userType": "member"
+    "userType": "member",
+    "productId": "1"
   }
 }
 ```
@@ -67,7 +67,7 @@ Process insurance benefits queries using direct Kendra search.
 {
   "sessionId": "session-123",
   "confidence": 8.0,
-  "responseText": "Here are the relevant benefits: <a href='NCCT123'>Dental Coverage</a>, <a href='NCCT456'>Preventive Care</a>",
+  "responseText": ["NCCT123", "NCCT456"],
   "success": true,
   "execution_time_ms": 1250.5,
   "timestamp": "2024-01-15T10:30:00Z"
@@ -87,7 +87,7 @@ Health check endpoint for monitoring.
 ### Kendra Service (`src/services/kendra_service.py`)
 - Direct AWS Kendra integration
 - Extracts NCCT_ID and Service_Name from document attributes
-- Returns structured results for HTML link generation
+- Returns an array of NCCT ID strings
 
 ## Configuration
 

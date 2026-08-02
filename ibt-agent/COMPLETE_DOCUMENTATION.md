@@ -33,7 +33,8 @@ Content-Type: application/json
   "sessionId": "sess-001",
   "context": {
     "userName": "John Doe",
-    "departmentId": "1"
+    "userType": "member",
+    "productId": "1"
   }
 }
 ```
@@ -132,11 +133,10 @@ ibt-agent/
 │   ├── config/          # Settings and constants
 │   ├── schemas/         # Pydantic data models
 │   ├── services/        # AWS service integrations
-│   ├── tools/           # Langchain tools
 │   └── utils/           # Logging utilities
 ├── tests/
-│   ├── unit/            # Unit tests (126 tests)
-│   └── integration/     # Integration tests (12 tests)
+│   ├── unit/            # Unit tests
+│   └── integration/     # Integration tests
 ├── scripts/             # HTTP request examples
 ├── requirements.txt     # Python dependencies
 ├── Dockerfile          # Container configuration
@@ -151,7 +151,7 @@ ibt-agent/
 3. **Empty Results**: Check department ID mapping and query format
 
 ## Performance
-- **Test Execution**: ~2.8 seconds for 138 tests
+- **Test Execution**: Fast, comprehensive test coverage
 - **API Response Time**: Typically < 2 seconds for direct mode
 - **Memory Usage**: Optimized for container deployment
 - **Concurrent Requests**: Supports multiple simultaneous queries
@@ -166,4 +166,4 @@ ibt-agent/
 
 **Last Updated**: April 2026  
 **Version**: 2.0.0  
-**Test Coverage**: 138 tests passing (100%)
+**Test Coverage**: Comprehensive test coverage passing

@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from src.services.kendra_service import KendraService, get_ncct_ids_by_product
-from src.config.constants import DEFAULT_PAGE_SIZE, NO_EXCERPT_MESSAGE
+from src.config.constants import DEFAULT_PAGE_SIZE
 
 class TestKendraService:
     """Tests for KendraService class."""
@@ -21,52 +21,6 @@ class TestKendraService:
         
         # Verify the client was created
         assert mock_boto.called
-    
-    @patch('src.services.kendra_service.get_settings')
-    def test_format_results_with_all_attributes(self, mock_settings):
-        mock_settings.return_value = MagicMock(kendra_index_id='test-index', aws_region='us-east-1')
-        service = KendraService()
-        
-        raw_items = [
-            {
-                'DocumentAttributes': [
-                    {'Key': 'NCCT_ID', 'Value': {'StringValue': 'NCCT123'}},
-                    {'Key': 'Service_Name', 'Value': {'StringValue': 'Dental'}}
-                ],
-                'DocumentExcerpt': {'Text': 'Dental coverage info'},
-                'ScoreAttributes': {'ScoreConfidence': 'HIGH'}
-            }
-        ]
-        
-        results = service._format_results(raw_items)
-        
-        assert len(results) == 1
-        assert results[0]['ncct_id'] == 'NCCT123'
-        assert results[0]['service_name'] == 'Dental'
-        assert results[0]['excerpt'] == 'Dental coverage info'
-        assert results[0]['confidence_score'] == 'HIGH'
-    
-
-    
-    @patch('src.services.kendra_service.get_settings')
-    def test_format_results_no_excerpt_uses_constant(self, mock_settings):
-        mock_settings.return_value = MagicMock(kendra_index_id='test-index', aws_region='us-east-1')
-        service = KendraService()
-        
-        raw_items = [
-            {
-                'DocumentAttributes': [
-                    {'Key': 'NCCT_ID', 'Value': {'StringValue': 'NCCT456'}},
-                    {'Key': 'Service_Name', 'Value': {'StringValue': 'Vision'}}
-                ],
-                'ScoreAttributes': {'ScoreConfidence': 'LOW'}
-            }
-        ]
-        
-        results = service._format_results(raw_items)
-        
-        assert len(results) == 1
-        assert results[0]['excerpt'] == NO_EXCERPT_MESSAGE
     
     @patch('boto3.client')
     def test_get_ncct_ids_by_product_success(self, mock_boto):

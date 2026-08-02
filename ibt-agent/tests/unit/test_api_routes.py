@@ -39,11 +39,22 @@ class TestHealthRoute:
     def test_ping_endpoint(self):
         """Test ping endpoint."""
         response = self.client.get("/IbtAgent/v2/ping")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
         assert "timestamp" in data
+
+    def test_health_endpoint(self):
+        """Test detailed health endpoint."""
+        response = self.client.get("/IbtAgent/v2/health")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["service"] == "ibt agent-hybrid"
+        assert data["kendra_index_id"] == ""
+        assert data["aws_region"] == "us-east-1"
 
 class TestAppIntegration:
     """Tests for FastAPI app integration."""

@@ -23,11 +23,3 @@ DEFAULT_EXECUTION_TIME = 0.0
 
 # Kendra Search Configuration
 DEFAULT_PAGE_SIZE = 10
-
-# Document Attribute Keys
-NCCT_ID_KEYS = ['NCCTID', 'NCCT_ID', 'ID', 'Document_ID', 'DocumentId']
-SERVICE_NAME_KEYS = ['Service_Name', 'Title', 'Name']
-
-# Error Messages
-NO_EXCERPT_MESSAGE = "No excerpt available"
-PROCESSING_ERROR_MESSAGE = "Document available but processing error occurred"
