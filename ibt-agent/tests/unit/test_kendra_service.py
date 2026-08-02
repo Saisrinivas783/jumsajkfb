@@ -22,31 +22,6 @@ class TestKendraService:
         # Verify the client was created
         assert mock_boto.called
     
-    @patch('boto3.client')
-    def test_search_success(self, mock_boto, mock_kendra_response):
-        mock_client = MagicMock()
-        mock_client.query.return_value = mock_kendra_response
-        mock_boto.return_value = mock_client
-        
-        service = KendraService('test-index', 'us-east-1')
-        result = service.search('dental benefits')
-        
-        assert result['success'] is True
-        assert len(result['results']) == 1
-        assert result['results'][0]['ncct_id'] == 'NCCT123'
-        assert result['results'][0]['service_name'] == 'Dental Coverage'
-        
-        # Verify query was called with correct parameters
-        mock_client.query.assert_called_once_with(
-            IndexId='test-index',
-            QueryText='dental benefits',
-            PageSize=DEFAULT_PAGE_SIZE
-        )
-    
-
-    
-
-    
     @patch('src.services.kendra_service.get_settings')
     def test_format_results_with_all_attributes(self, mock_settings):
         mock_settings.return_value = MagicMock(kendra_index_id='test-index', aws_region='us-east-1')

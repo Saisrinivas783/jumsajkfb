@@ -142,45 +142,7 @@ class KendraService:
     def client(self) -> boto3.client:
         """Get the Kendra client (lazy initialization)."""
         return self._get_kendra_client()
-    
-    def search(self, query: str) -> Dict[str, Any]:
-        """Search Kendra and return formatted results."""
-        try:
-            logger.info(f"Searching Kendra index {self.index_id} with query: {query[:100]}...")
-            
-            response = self.client.query(
-                IndexId=self.index_id,
-                QueryText=query,
-                PageSize=self.settings.kendra_page_size
-            )
-            
-            if response is None:
-                logger.error("Kendra returned None response")
-                return {'success': False, 'results': [], 'error': 'Kendra returned None response'}
-            
-            raw_items = response.get('ResultItems', [])
-            logger.info(f"Kendra returned {len(raw_items)} raw items for query: '{query}'")
-            
-            if not raw_items:
-                logger.info("No results found for query")
-                return {'success': True, 'results': []}
-            
-            results = self._format_results(raw_items)
-            logger.info(f"Kendra search completed. Formatted {len(results)} results from {len(raw_items)} raw items")
-            
-            return {
-                'success': True,
-                'results': results
-            }
-            
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            logger.error(f"Kendra API error: {error_code} - {str(e)}")
-            return {'success': False, 'results': [], 'error': f'Kendra API error: {error_code}'}
-        except Exception as e:
-            logger.error(f"Unexpected error during Kendra search: {str(e)}")
-            return {'success': False, 'results': [], 'error': f'Search error: {str(e)}'}
-    
+
     def _build_attribute_filter(self, product_config: Dict[str, str]) -> Dict[str, Any]:
         """Build Kendra AttributeFilter for product filtering."""
         if not product_config:
