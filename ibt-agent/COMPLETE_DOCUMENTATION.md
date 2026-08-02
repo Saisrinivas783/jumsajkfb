@@ -1,20 +1,19 @@
 # IBT Agent - Complete Documentation
 
 ## Overview
-The IBT (Insurance Benefits Tool) Agent is a hybrid AI-powered service that processes insurance benefits queries using AWS Kendra semantic search and optional LLM enhancement.
+The IBT (Insurance Benefits Tool) Agent is an AI-powered service that processes insurance benefits queries using AWS Kendra semantic search.
 
 ## Architecture
-- **Hybrid Processing**: Supports both Direct Kendra mode and LLM-enhanced mode
+- **Direct Kendra Processing**: Product-filtered AWS Kendra semantic search
 - **Department Filtering**: Maps department IDs to specific plan types and brochures
-- **AWS Integration**: Uses Kendra for search, Bedrock for LLM processing
+- **AWS Integration**: Uses Kendra for search
 - **FastAPI Framework**: RESTful API with automatic documentation
 
 ## Key Features
-- ✅ **Dual Processing Modes**: Direct Kendra search or LLM-enhanced responses
 - ✅ **Department-Based Filtering**: Results filtered by plan type and brochure
 - ✅ **NCCT ID Response Format**: Returns arrays of NCCT IDs for direct integration
 - ✅ **Role-Based AWS Access**: Supports IAM role assumption for cross-account access
-- ✅ **Comprehensive Testing**: 138 test cases with 100% pass rate
+- ✅ **Comprehensive Testing**: Full test coverage
 - ✅ **Clean Architecture**: No fallback logic, streamlined codebase
 
 ## API Endpoints
@@ -39,12 +38,6 @@ Content-Type: application/json
 }
 ```
 
-### Mode Management
-```http
-GET /IbtAgent/v2/mode        # Get current mode
-POST /IbtAgent/v2/mode       # Set processing mode
-```
-
 ## Department Mapping
 - **1, 4**: FEHB Standard/Basic plans
 - **6**: FEHB Blue Focus plan  
@@ -53,27 +46,13 @@ POST /IbtAgent/v2/mode       # Set processing mode
 
 ## Response Formats
 
-### Direct Kendra Mode
-Returns array of NCCT IDs:
+Returns an array of NCCT IDs:
 ```json
 {
   "sessionId": "sess-001",
   "responseText": ["NCCT123", "NCCT456"],
   "confidence": 8.0,
-  "success": true,
-  "mode": "direct_kendra"
-}
-```
-
-### LLM Enhanced Mode
-Returns HTML formatted text:
-```json
-{
-  "sessionId": "sess-001", 
-  "responseText": "<a href='NCCT123'>Dental Coverage</a>",
-  "confidence": 8.0,
-  "success": true,
-  "mode": "llm_enhanced"
+  "success": true
 }
 ```
 
@@ -85,13 +64,6 @@ Returns HTML formatted text:
 AWS_REGION=us-east-1
 KENDRA_INDEX_ID=your-kendra-index-id
 KENDRA_ROLE_ARN=arn:aws:iam::ACCOUNT:role/KendraRole
-
-# Processing Mode
-USE_LLM=true  # or false for direct mode
-
-# Bedrock Configuration (LLM mode only)
-BEDROCK_MODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0
-BEDROCK_ROLE_ARN=arn:aws:iam::ACCOUNT:role/BedrockRole
 ```
 
 ## Development
@@ -176,15 +148,7 @@ ibt-agent/
 ### Common Issues
 1. **AWS Credentials**: Ensure proper IAM roles and permissions
 2. **Kendra Access**: Verify index ID and region configuration
-3. **Mode Switching**: Use the `/mode` endpoint to change processing modes
-4. **Empty Results**: Check department ID mapping and query format
-
-### Debug Mode
-Use the debug endpoint for troubleshooting:
-```python
-from src.services.kendra_service import debug_kendra_search
-result = debug_kendra_search("test query")
-```
+3. **Empty Results**: Check department ID mapping and query format
 
 ## Performance
 - **Test Execution**: ~2.8 seconds for 138 tests
