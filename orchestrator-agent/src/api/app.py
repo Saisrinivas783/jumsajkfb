@@ -22,7 +22,7 @@ async def _lifespan(app: FastAPI):
     chat_models = get_chat_models()
     if chat_models.settings.bedrock_role_arn:
         try:
-            await asyncio.to_thread(chat_models.refresh_credentials)
+            await asyncio.to_thread(chat_models.warm_credentials)
         except Exception as e:
             logger.warning("Initial Bedrock credential warmup failed; startup will continue: %s", e)
     chat_models.start_credential_refresh()

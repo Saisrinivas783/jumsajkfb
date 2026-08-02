@@ -80,6 +80,11 @@ class OrchestratorSettings(BaseSettings):
         default=3,
         description="Maximum retry attempts for Bedrock API calls"
     )
+    bedrock_max_pool_connections: int = Field(
+        default=50,
+        gt=0,
+        description="Maximum pooled HTTP connections for the Bedrock boto client"
+    )
 
     # Extended Thinking Configuration (for Claude 3.5+ models)
     extended_thinking_enabled: bool = Field(

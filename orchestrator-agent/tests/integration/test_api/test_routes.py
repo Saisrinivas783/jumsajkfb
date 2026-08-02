@@ -139,7 +139,7 @@ class TestLifespan:
             patch("src.api.app.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
         ):
             async with _lifespan(FastAPI()):
-                mock_to_thread.assert_awaited_once_with(chat_models.refresh_credentials)
+                mock_to_thread.assert_awaited_once_with(chat_models.warm_credentials)
                 chat_models.start_credential_refresh.assert_called_once()
 
             chat_models.stop_credential_refresh.assert_called_once()

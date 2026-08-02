@@ -56,6 +56,11 @@ class IBTSettings(BaseSettings):
         le=100,
         description="Number of documents to retrieve from Kendra per query"
     )
+    kendra_max_pool_connections: int = Field(
+        default=50,
+        gt=0,
+        description="Maximum pooled HTTP connections for the Kendra boto client"
+    )
 
     # DXAIService Configuration
     dxai_base_url: str = Field(

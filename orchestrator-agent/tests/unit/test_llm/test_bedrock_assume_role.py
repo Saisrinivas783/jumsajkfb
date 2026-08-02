@@ -1,317 +1,148 @@
 """
-Unit tests for Bedrock assume role functionality in ChatModels.
+Unit tests for ChatModels' use of the shared AssumedRoleClientFactory.
+
+STS retry/backoff behavior itself is covered in tests/unit/test_aws/test_assume_role.py;
+these tests cover ChatModels' integration with it (factory wiring, client
+caching, boto config, and the credential refresh worker lifecycle).
 """
 
-from datetime import datetime, timezone, timedelta
+from unittest.mock import Mock, MagicMock, patch
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from botocore.exceptions import ClientError
 
+from src.exceptions import CredentialsError
 from src.llm.client import ChatModels
 from src.config.settings import OrchestratorSettings
 
 
 class TestBedrockAssumeRole:
-    """Test assume role functionality in ChatModels."""
+    """Test ChatModels' integration with AssumedRoleClientFactory."""
 
     def setup_method(self):
         """Set up test fixtures."""
         self.chat_models = ChatModels()
 
-    @patch('src.llm.client.boto3.client')
-    def test_assume_bedrock_role_success(self, mock_boto_client):
-        """Test successful Bedrock role assumption."""
-        # Mock STS client and response
-        mock_sts = Mock()
-        mock_boto_client.return_value = mock_sts
-        
-        mock_response = {
-            'Credentials': {
-                'AccessKeyId': 'ASIA123456789',
-                'SecretAccessKey': 'secret123',
-                'SessionToken': 'token123',
-                'Expiration': '2024-01-01T12:00:00Z'
-            }
-        }
-        mock_sts.assume_role.return_value = mock_response
-        
-        # Set up role ARN
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
-        
-        # Test role assumption
-        credentials = self.chat_models._assume_bedrock_role()
-        
-        # Verify STS call - use the actual session name from settings
-        mock_sts.assume_role.assert_called_once_with(
-            RoleArn='arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role',
-            RoleSessionName=self.chat_models.settings.bedrock_session_name,
-            DurationSeconds=3600
-        )
-        
-        # Verify returned credentials
-        assert credentials['aws_access_key_id'] == 'ASIA123456789'
-        assert credentials['aws_secret_access_key'] == 'secret123'
-        assert credentials['aws_session_token'] == 'token123'
+    def test_get_bedrock_client_no_arn_uses_default_credentials(self):
+        """No role ARN configured -> default-credentials boto3 client, not the factory."""
+        with patch('src.llm.client.boto3.client') as mock_boto_client:
+            mock_bedrock = Mock()
+            mock_boto_client.return_value = mock_bedrock
 
-    def test_assume_bedrock_role_no_arn(self):
-        """Test role assumption when no ARN is configured."""
-        self.chat_models.settings.bedrock_role_arn = None
-        
-        with pytest.raises(ValueError, match="BEDROCK_ROLE_ARN is not configured"):
-            self.chat_models._assume_bedrock_role()
+            self.chat_models.settings.bedrock_role_arn = None
+            self.chat_models._client = None
 
-    @patch('src.llm.client.boto3.client')
-    def test_assume_bedrock_role_access_denied(self, mock_boto_client):
-        """Test role assumption failure due to access denied."""
-        # Mock STS client with access denied error
-        mock_sts = Mock()
-        mock_boto_client.return_value = mock_sts
-        
-        error_response = {'Error': {'Code': 'AccessDenied', 'Message': 'Access denied'}}
-        mock_sts.assume_role.side_effect = ClientError(error_response, 'AssumeRole')
-        
-        # Set up role ARN
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
-        
-        # Test role assumption failure
-        with pytest.raises(RuntimeError, match="Role assumption failed: AccessDenied"):
-            self.chat_models._assume_bedrock_role()
+            client = self.chat_models._get_bedrock_client()
 
-    @patch('src.llm.client.boto3.client')
-    def test_assume_bedrock_role_unexpected_error(self, mock_boto_client):
-        """Test role assumption failure due to unexpected error."""
-        # Mock STS client with unexpected error
-        mock_sts = Mock()
-        mock_boto_client.return_value = mock_sts
-        
-        mock_sts.assume_role.side_effect = Exception('Unexpected error')
-        
-        # Set up role ARN
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
-        
-        # Test role assumption failure
-        with pytest.raises(RuntimeError, match="Role assumption failed: Unexpected error"):
-            self.chat_models._assume_bedrock_role()
+            call_args = mock_boto_client.call_args
+            assert call_args[1]['service_name'] == 'bedrock-runtime'
+            assert call_args[1]['region_name'] == self.chat_models.settings.aws_region
+            assert 'config' in call_args[1]
+            assert client == mock_bedrock
 
-    @patch('src.llm.client.boto3.client')
-    def test_get_bedrock_client_with_role_assumption(self, mock_boto_client):
-        """Test Bedrock client creation with role assumption."""
-        # Mock STS client
-        mock_sts = Mock()
-        mock_bedrock = Mock()
-        
-        def boto_client_side_effect(service_name, **kwargs):
-            if service_name == 'sts':
-                return mock_sts
-            elif service_name == 'bedrock-runtime':
-                return mock_bedrock
-            return Mock()
-        
-        mock_boto_client.side_effect = boto_client_side_effect
-        
-        # Mock successful role assumption
-        mock_response = {
-            'Credentials': {
-                'AccessKeyId': 'ASIA123456789',
-                'SecretAccessKey': 'secret123',
-                'SessionToken': 'token123',
-                'Expiration': '2024-01-01T12:00:00Z'
-            }
-        }
-        mock_sts.assume_role.return_value = mock_response
-        
-        # Set up role ARN
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
-        
-        # Reset client to force re-initialization
-        self.chat_models._client = None
-        
-        # Test client creation
-        client = self.chat_models._get_bedrock_client()
-        
-        # Verify role assumption was called
-        mock_sts.assume_role.assert_called_once()
-        
-        # Verify Bedrock client was created with assumed credentials
-        bedrock_calls = [call for call in mock_boto_client.call_args_list if call[1].get('service_name') == 'bedrock-runtime']
-        assert len(bedrock_calls) > 0
-        bedrock_call = bedrock_calls[0]
-        assert bedrock_call[1]['aws_access_key_id'] == 'ASIA123456789'
-        assert bedrock_call[1]['aws_secret_access_key'] == 'secret123'
-        assert bedrock_call[1]['aws_session_token'] == 'token123'
-        
-        assert client == mock_bedrock
+    def test_get_bedrock_client_with_role_assumption_uses_factory(self):
+        """A configured role ARN routes client construction through the factory."""
+        with patch('src.llm.client.AssumedRoleClientFactory') as mock_factory_cls:
+            mock_factory = Mock()
+            mock_bedrock = Mock()
+            mock_factory.client.return_value = mock_bedrock
+            mock_factory_cls.return_value = mock_factory
 
-    @patch('src.llm.client.boto3.client')
-    def test_get_bedrock_client_uses_valid_cached_client_on_transient_refresh_failure(self, mock_boto_client):
-        """Transient STS failures should not break traffic while cached credentials are still valid."""
-        mock_sts = Mock()
-        cached_client = Mock()
+            self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
+            self.chat_models._client = None
 
-        def boto_client_side_effect(service_name=None, **kwargs):
-            if service_name == 'sts':
-                return mock_sts
-            return Mock()
+            client = self.chat_models._get_bedrock_client()
 
-        mock_boto_client.side_effect = boto_client_side_effect
-        mock_sts.assume_role.side_effect = ClientError(
-            {'Error': {'Code': 'ThrottlingException', 'Message': 'Rate exceeded'}},
-            'AssumeRole'
-        )
+            mock_factory_cls.assert_called_once_with(
+                role_arn=self.chat_models.settings.bedrock_role_arn,
+                session_name=self.chat_models.settings.bedrock_session_name,
+                duration_seconds=self.chat_models.settings.bedrock_role_duration,
+                region_name=self.chat_models.settings.aws_region,
+                method='bedrock-assume-role',
+            )
+            mock_factory.client.assert_called_once()
+            assert mock_factory.client.call_args[0][0] == 'bedrock-runtime'
+            assert client == mock_bedrock
 
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
-        self.chat_models._client = cached_client
-        self.chat_models._credentials_expiration = datetime.now(timezone.utc) + timedelta(minutes=2)
+    def test_get_bedrock_client_role_assumption_failure_propagates(self):
+        """A factory that can't build a session raises CredentialsError, not a silent fallback."""
+        with patch('src.llm.client.AssumedRoleClientFactory') as mock_factory_cls:
+            mock_factory = Mock()
+            mock_factory.client.side_effect = CredentialsError('AssumeRole failed: AccessDenied')
+            mock_factory_cls.return_value = mock_factory
 
-        client = self.chat_models._get_bedrock_client()
+            self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
+            self.chat_models._client = None
 
-        assert client is cached_client
-        mock_sts.assume_role.assert_called_once()
-        bedrock_calls = [
-            call for call in mock_boto_client.call_args_list
-            if call.kwargs.get('service_name') == 'bedrock-runtime'
-        ]
-        assert bedrock_calls == []
+            with pytest.raises(CredentialsError, match='AccessDenied'):
+                self.chat_models._get_bedrock_client()
 
-    @patch('src.llm.client.boto3.client')
-    def test_get_bedrock_client_raises_non_transient_refresh_failure(self, mock_boto_client):
-        """Non-retryable STS failures should not be hidden by a cached client."""
-        mock_sts = Mock()
-        cached_client = Mock()
-        mock_boto_client.return_value = mock_sts
-        mock_sts.assume_role.side_effect = ClientError(
-            {'Error': {'Code': 'AccessDenied', 'Message': 'Access denied'}},
-            'AssumeRole'
-        )
+    def test_start_credential_refresh_starts_worker_once(self):
+        """Repeated calls reuse the same worker instance rather than starting a new one."""
+        with patch('src.llm.client.CredentialRefreshWorker') as mock_worker_cls:
+            mock_worker = Mock()
+            mock_worker_cls.return_value = mock_worker
 
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
-        self.chat_models._client = cached_client
-        self.chat_models._credentials_expiration = datetime.now(timezone.utc) + timedelta(minutes=2)
+            self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
 
-        with pytest.raises(RuntimeError, match="Role assumption failed: AccessDenied"):
-            self.chat_models._get_bedrock_client()
+            self.chat_models.start_credential_refresh()
+            self.chat_models.start_credential_refresh()
 
-    @patch('src.llm.client.threading.Thread')
-    def test_start_credential_refresh_starts_single_daemon_thread(self, mock_thread_cls):
-        """Background refresh should run as a single daemon worker per instance."""
-        mock_thread = MagicMock()
-        mock_thread.is_alive.return_value = True
-        mock_thread_cls.return_value = mock_thread
+            mock_worker_cls.assert_called_once()
+            assert mock_worker.start.call_count == 2
 
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
+    def test_stop_credential_refresh_without_start_is_a_no_op(self):
+        """Stopping before starting shouldn't raise."""
+        self.chat_models.stop_credential_refresh()
 
-        self.chat_models.start_credential_refresh()
-        self.chat_models.start_credential_refresh()
-
-        mock_thread_cls.assert_called_once()
-        assert mock_thread_cls.call_args.kwargs['daemon'] is True
-        mock_thread.start.assert_called_once()
-
-    @patch('src.llm.client.boto3.client')
-    def test_get_bedrock_client_without_role_assumption(self, mock_boto_client):
-        """Test Bedrock client creation without role assumption."""
-        mock_bedrock = Mock()
-        mock_boto_client.return_value = mock_bedrock
-        
-        # No role ARN configured
-        self.chat_models.settings.bedrock_role_arn = None
-        
-        # Reset client to force re-initialization
-        self.chat_models._client = None
-        
-        # Test client creation
-        client = self.chat_models._get_bedrock_client()
-        
-        # Verify the call was made with correct parameters
-        call_args = mock_boto_client.call_args
-        assert call_args[1]['service_name'] == 'bedrock-runtime'
-        assert call_args[1]['region_name'] == self.chat_models.settings.aws_region
-        assert 'config' in call_args[1]
-        
-        assert client == mock_bedrock
-
-    @patch('src.llm.client.boto3.client')
-    def test_client_caching(self, mock_boto_client):
+    def test_client_caching(self):
         """Test that Bedrock client is cached after first creation."""
-        mock_bedrock = Mock()
-        mock_boto_client.return_value = mock_bedrock
-        
-        # No role ARN configured for simplicity
-        self.chat_models.settings.bedrock_role_arn = None
-        
-        # Reset client
-        self.chat_models._client = None
-        
-        # Get client twice
-        client1 = self.chat_models._get_bedrock_client()
-        client2 = self.chat_models._get_bedrock_client()
-        
-        # Verify boto3.client was called only once
-        mock_boto_client.assert_called_once()
-        
-        # Verify same client instance returned
-        assert client1 == client2 == mock_bedrock
+        with patch('src.llm.client.boto3.client') as mock_boto_client:
+            mock_bedrock = Mock()
+            mock_boto_client.return_value = mock_bedrock
 
-    @patch('src.llm.client.boto3.client')
-    @patch('src.llm.client.ChatBedrockConverse')
-    def test_bedrock_model_with_assume_role(self, mock_chat_bedrock, mock_boto_client):
-        """Test bedrock_model creation with assume role."""
-        # Mock STS and Bedrock clients
-        mock_sts = Mock()
-        mock_bedrock = Mock()
-        mock_model = Mock()
-        
-        def boto_client_side_effect(service_name, **kwargs):
-            if service_name == 'sts':
-                return mock_sts
-            elif service_name == 'bedrock-runtime':
-                return mock_bedrock
-            return Mock()
-        
-        mock_boto_client.side_effect = boto_client_side_effect
-        mock_chat_bedrock.return_value = mock_model
-        
-        # Mock successful role assumption
-        mock_response = {
-            'Credentials': {
-                'AccessKeyId': 'ASIA123456789',
-                'SecretAccessKey': 'secret123',
-                'SessionToken': 'token123',
-                'Expiration': '2024-01-01T12:00:00Z'
-            }
-        }
-        mock_sts.assume_role.return_value = mock_response
-        
-        # Set up role ARN
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
-        
-        # Reset client
-        self.chat_models._client = None
-        
-        # Test model creation
-        model = self.chat_models.bedrock_model()
-        
-        # Verify role assumption occurred
-        mock_sts.assume_role.assert_called_once()
-        
-        # Verify ChatBedrockConverse was called with the assumed role client
-        mock_chat_bedrock.assert_called_once()
-        call_kwargs = mock_chat_bedrock.call_args[1]
-        assert call_kwargs['client'] == mock_bedrock
-        
-        assert model == mock_model
+            self.chat_models.settings.bedrock_role_arn = None
+            self.chat_models._client = None
+
+            client1 = self.chat_models._get_bedrock_client()
+            client2 = self.chat_models._get_bedrock_client()
+
+            mock_boto_client.assert_called_once()
+            assert client1 == client2 == mock_bedrock
+
+    def test_bedrock_model_with_assume_role(self):
+        """Test bedrock_model creation with assume role, via the factory."""
+        with (
+            patch('src.llm.client.AssumedRoleClientFactory') as mock_factory_cls,
+            patch('src.llm.client.ChatBedrockConverse') as mock_chat_bedrock,
+        ):
+            mock_factory = Mock()
+            mock_bedrock = Mock()
+            mock_model = Mock()
+            mock_factory.client.return_value = mock_bedrock
+            mock_factory_cls.return_value = mock_factory
+            mock_chat_bedrock.return_value = mock_model
+
+            self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
+            self.chat_models._client = None
+
+            model = self.chat_models.bedrock_model()
+
+            mock_factory.client.assert_called_once()
+            mock_chat_bedrock.assert_called_once()
+            call_kwargs = mock_chat_bedrock.call_args[1]
+            assert call_kwargs['client'] == mock_bedrock
+            assert model == mock_model
 
     def test_settings_configuration(self):
         """Test that settings are properly configured for role assumption."""
         settings = OrchestratorSettings()
-        
+
         # Test actual values from settings (may be defaults or environment overrides)
         # The test should work with whatever the settings actually contain
         assert settings.bedrock_role_duration == 3600
         # Session name can be either default or environment override
         assert settings.bedrock_session_name in ["orchestrator-agent-bedrock", "orchestrator-agent-bedrock-session"]
-        
+
         # Test with environment variables
         with patch.dict('os.environ', {
             'BEDROCK_ROLE_ARN': 'arn:aws:iam::123456789:role/test-role',
@@ -326,51 +157,8 @@ class TestBedrockAssumeRole:
     def test_boto_config_creation(self):
         """Test boto configuration creation."""
         config = self.chat_models._get_boto_config()
-        
+
         assert config is not None
-        # Verify config has expected timeout and retry settings
         assert hasattr(config, 'read_timeout')
         assert hasattr(config, 'connect_timeout')
-
-    @patch('src.llm.client.boto3.client')
-    def test_credentials_storage(self, mock_boto_client):
-        """Test that assumed credentials are stored properly."""
-        # Mock STS client
-        mock_sts = Mock()
-        mock_bedrock = Mock()
-        
-        def boto_client_side_effect(service_name, **kwargs):
-            if service_name == 'sts':
-                return mock_sts
-            elif service_name == 'bedrock-runtime':
-                return mock_bedrock
-            return Mock()
-        
-        mock_boto_client.side_effect = boto_client_side_effect
-        
-        # Mock successful role assumption
-        mock_response = {
-            'Credentials': {
-                'AccessKeyId': 'ASIA123456789',
-                'SecretAccessKey': 'secret123',
-                'SessionToken': 'token123',
-                'Expiration': '2024-01-01T12:00:00Z'
-            }
-        }
-        mock_sts.assume_role.return_value = mock_response
-        
-        # Set up role ARN
-        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
-        
-        # Reset client and credentials
-        self.chat_models._client = None
-        self.chat_models._assumed_credentials = None
-        
-        # Test client creation
-        self.chat_models._get_bedrock_client()
-        
-        # Verify credentials are stored
-        assert self.chat_models._assumed_credentials is not None
-        assert self.chat_models._assumed_credentials['aws_access_key_id'] == 'ASIA123456789'
-        assert self.chat_models._assumed_credentials['aws_secret_access_key'] == 'secret123'
-        assert self.chat_models._assumed_credentials['aws_session_token'] == 'token123'
+        assert config.max_pool_connections == self.chat_models.settings.bedrock_max_pool_connections

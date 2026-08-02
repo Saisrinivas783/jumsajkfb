@@ -44,6 +44,13 @@ class GuardrailError(OrchestratorError):
         super().__init__(message)
 
 
+class CredentialsError(OrchestratorError):
+    """Raised when AWS STS role assumption fails after exhausting retries."""
+
+    def __init__(self, message: str = "Credentials unavailable") -> None:
+        super().__init__(message)
+
+
 class ConfigurationError(OrchestratorError):
     """Raised for invalid configuration."""
 

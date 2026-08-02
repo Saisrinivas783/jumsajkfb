@@ -22,7 +22,7 @@ async def _lifespan(app: FastAPI):
     if settings.kendra_role_arn:
         kendra_service = get_kendra_service()
         try:
-            await asyncio.to_thread(kendra_service.refresh_credentials)
+            await asyncio.to_thread(kendra_service.warm_credentials)
         except Exception as e:
             logger.warning("Initial Kendra credential warmup failed; startup will continue: %s", e)
         kendra_service.start_credential_refresh()

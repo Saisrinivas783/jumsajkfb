@@ -122,7 +122,7 @@ class TestLifespan:
             patch("src.api.app.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
         ):
             async with _lifespan(FastAPI()):
-                mock_to_thread.assert_awaited_once_with(kendra_service.refresh_credentials)
+                mock_to_thread.assert_awaited_once_with(kendra_service.warm_credentials)
                 kendra_service.start_credential_refresh.assert_called_once()
 
             kendra_service.stop_credential_refresh.assert_called_once()

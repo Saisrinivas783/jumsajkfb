@@ -19,6 +19,7 @@ class TestIBTSettings:
         assert settings.kendra_session_name == "ibt-agent-kendra"
         assert settings.kendra_role_duration == 3600
         assert settings.kendra_page_size == 10
+        assert settings.kendra_max_pool_connections == 50
         assert settings.confidence_threshold_high == 7.0
         assert settings.confidence_threshold_low == 5.0
         assert settings.log_level == "INFO"
@@ -28,7 +29,8 @@ class TestIBTSettings:
         'KENDRA_INDEX_ID': 'test-index-123',
         'KENDRA_SESSION_NAME': 'test-kendra-session',
         'KENDRA_ROLE_DURATION': '1800',
-        'KENDRA_PAGE_SIZE': '25'
+        'KENDRA_PAGE_SIZE': '25',
+        'KENDRA_MAX_POOL_CONNECTIONS': '75'
     })
     def test_environment_variable_override(self):
         """Test that environment variables override defaults."""
@@ -39,6 +41,7 @@ class TestIBTSettings:
         assert settings.kendra_session_name == "test-kendra-session"
         assert settings.kendra_role_duration == 1800
         assert settings.kendra_page_size == 25
+        assert settings.kendra_max_pool_connections == 75
 
     def test_kendra_page_size_validation(self):
         """Test Kendra page size validation."""
@@ -47,6 +50,14 @@ class TestIBTSettings:
 
         with pytest.raises(ValueError):
             IBTSettings(kendra_page_size=0)
+
+    def test_kendra_max_pool_connections_validation(self):
+        """Test Kendra connection pool size validation."""
+        settings = IBTSettings(kendra_max_pool_connections=100)
+        assert settings.kendra_max_pool_connections == 100
+
+        with pytest.raises(ValueError):
+            IBTSettings(kendra_max_pool_connections=0)
 
     def test_get_settings_cached(self):
         """Test that get_settings returns cached instance."""
