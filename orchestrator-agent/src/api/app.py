@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from src.api.dependencies import get_orchestrator
 from src.api.error_handlers import register_exception_handlers
 from src.api.routes import health, invocations
+from src.http_client import close_http_client
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -19,7 +20,7 @@ async def _lifespan(app: FastAPI):
     get_orchestrator()           # raises ToolRegistryError if tools.yaml is broken
     logger.info("Orchestrator Agent initialized successfully.")
     yield
-    # shutdown: nothing needed
+    close_http_client()
 
 
 def create_app() -> FastAPI:

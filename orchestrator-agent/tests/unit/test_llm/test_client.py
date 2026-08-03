@@ -20,6 +20,13 @@ class TestChatModelsInit:
         config = cm._get_boto_config()
         assert isinstance(config, Config)
 
+    @patch("src.llm.client.boto3.client")
+    def test_get_boto_config_uses_bedrock_max_pool_connections(self, mock_boto):
+        from src.llm.client import ChatModels
+        cm = ChatModels()
+        config = cm._get_boto_config()
+        assert config.max_pool_connections == cm.settings.bedrock_max_pool_connections
+
 
 class TestGetBedrockClient:
     """Tests for _get_bedrock_client method."""
@@ -350,6 +357,93 @@ class TestBedrockModelWithGuardrails:
 
         kwargs = mock_cbc.call_args[1]
         assert kwargs["temperature"] == 0.7
+
+
+class TestAssumeBedrockRole:
+    """Tests for _assume_bedrock_role STS client configuration."""
+
+    @patch("src.llm.client.boto3.client")
+    def test_sts_client_uses_sts_max_pool_connections(self, mock_boto):
+        from src.llm.client import ChatModels
+
+        mock_sts = MagicMock()
+        mock_boto.return_value = mock_sts
+        mock_sts.assume_role.return_value = {
+            'Credentials': {
+                'AccessKeyId': 'ASIA123456789',
+                'SecretAccessKey': 'secret123',
+                'SessionToken': 'token123',
+                'Expiration': '2024-01-01T12:00:00Z'
+            }
+        }
+
+        cm = ChatModels()
+        original_role_arn = cm.settings.bedrock_role_arn
+        cm.settings.bedrock_role_arn = 'arn:aws:iam::054940911799:role/orchestrator-bedrock-role'
+
+        try:
+            cm._assume_bedrock_role()
+
+            sts_call = mock_boto.call_args
+            assert sts_call[0][0] == 'sts'
+            assert 'config' in sts_call[1]
+            assert sts_call[1]['config'].max_pool_connections == cm.settings.sts_max_pool_connections
+        finally:
+            cm.settings.bedrock_role_arn = original_role_arn
+
+    def test_sts_boto_config_has_bounded_timeouts_and_retries(self):
+        """Test the STS client config has bounded timeouts/retries so a hung STS
+        cannot stall every thread waiting on the credential-refresh lock."""
+        from src.llm.client import ChatModels
+
+        cm = ChatModels()
+        config = cm._get_sts_boto_config()
+
+        assert config is not None
+        assert config.connect_timeout == 5
+        assert config.read_timeout == 10
+        assert config.retries == {"max_attempts": 2, "mode": "standard"}
+
+    @patch("src.llm.client.boto3.client")
+    def test_concurrent_get_bedrock_client_calls_assume_role_once(self, mock_boto):
+        """Test that concurrent calls to _get_bedrock_client with expired credentials
+        only trigger one assume_role call, not one per caller."""
+        from concurrent.futures import ThreadPoolExecutor
+        import time as time_module
+        from src.llm.client import ChatModels
+
+        mock_sts = MagicMock()
+        mock_bedrock = MagicMock()
+
+        def boto_client_side_effect(service_name=None, **kwargs):
+            if service_name == 'sts':
+                time_module.sleep(0.05)  # widen the race window
+                return mock_sts
+            return mock_bedrock
+
+        mock_boto.side_effect = boto_client_side_effect
+        from datetime import datetime, timezone, timedelta
+        mock_sts.assume_role.return_value = {
+            'Credentials': {
+                'AccessKeyId': 'ASIA123456789',
+                'SecretAccessKey': 'secret123',
+                'SessionToken': 'token123',
+                'Expiration': datetime.now(timezone.utc) + timedelta(hours=1)
+            }
+        }
+
+        cm = ChatModels()
+        original_role_arn = cm.settings.bedrock_role_arn
+        cm.settings.bedrock_role_arn = 'arn:aws:iam::054940911799:role/orchestrator-bedrock-role'
+
+        try:
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                clients = list(pool.map(lambda _: cm._get_bedrock_client(), range(10)))
+
+            assert mock_sts.assume_role.call_count == 1
+            assert all(c is mock_bedrock for c in clients)
+        finally:
+            cm.settings.bedrock_role_arn = original_role_arn
 
 
 class TestGetChatModels:
