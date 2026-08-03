@@ -33,6 +33,20 @@ class TestGetHttpClient:
         assert pool._max_connections == settings.tool_http_max_connections
         assert pool._max_keepalive_connections == settings.tool_http_max_keepalive_connections
 
+    def test_concurrent_first_calls_construct_only_one_client(self):
+        """Test that concurrent first-callers of get_http_client() (racing past the
+        None check on Starlette's shared thread pool) all get the same instance,
+        rather than each constructing (and leaking) their own httpx.Client."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        close_http_client()
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            clients = list(pool.map(lambda _: get_http_client(), range(10)))
+
+        first = clients[0]
+        assert all(c is first for c in clients)
+
 
 class TestCloseHttpClient:
     """Tests for shared client shutdown."""
