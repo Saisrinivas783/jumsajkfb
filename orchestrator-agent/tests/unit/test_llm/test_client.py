@@ -471,4 +471,28 @@ class TestGetChatModels:
         assert isinstance(result, ChatModels)
         mod._chat_models = None
 
+    def test_get_chat_models_concurrent_first_calls_construct_only_one_instance(self):
+        """Test that concurrent first calls to get_chat_models() construct
+        exactly one ChatModels instance, not one per racing thread."""
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+        import src.llm.client as mod
+        from src.llm.client import ChatModels, get_chat_models
+
+        original_init = ChatModels.__init__
+
+        def delayed_init(self, *args, **kwargs):
+            time.sleep(0.05)  # widen the construction race window
+            original_init(self, *args, **kwargs)
+
+        mod._chat_models = None
+        try:
+            with patch.object(ChatModels, '__init__', delayed_init):
+                with ThreadPoolExecutor(max_workers=10) as pool:
+                    instances = list(pool.map(lambda _: get_chat_models(), range(10)))
+
+            assert all(instance is instances[0] for instance in instances)
+        finally:
+            mod._chat_models = None
+
 

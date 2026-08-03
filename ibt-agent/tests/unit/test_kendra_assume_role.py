@@ -38,19 +38,25 @@ class TestKendraAssumeRole:
         self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
         
         # Test role assumption
-        credentials = self.kendra_service._assume_kendra_role()
-        
+        credentials, expiration = self.kendra_service._assume_kendra_role()
+
         # Verify STS call
         mock_sts.assume_role.assert_called_once_with(
             RoleArn='arn:aws:iam::054940911799:role/ibt-ai-index-role',
             RoleSessionName='ibt-agent-kendra-session',
             DurationSeconds=3600
         )
-        
+
         # Verify returned credentials
         assert credentials['aws_access_key_id'] == 'ASIA123456789'
         assert credentials['aws_secret_access_key'] == 'secret123'
         assert credentials['aws_session_token'] == 'token123'
+        assert expiration == '2024-01-01T12:00:00Z'
+
+        # _assume_kendra_role no longer sets self._credentials_expiration as a
+        # side effect — the caller (_refresh_client_locked) publishes it only
+        # after the new client is built, closing the stale-client race.
+        assert self.kendra_service._credentials_expiration is None
 
     def test_assume_kendra_role_no_arn(self):
         """Test role assumption when no ARN is configured."""
@@ -75,6 +81,57 @@ class TestKendraAssumeRole:
         # Test role assumption failure
         with pytest.raises(RuntimeError, match="Role assumption failed: AccessDenied"):
             self.kendra_service._assume_kendra_role()
+
+    @patch('src.services.kendra_service.boto3.client')
+    def test_get_kendra_client_role_assumption_failure_raises(self, mock_boto_client):
+        """Test that a failed role assumption raises instead of silently
+        falling back to default AWS credentials."""
+        mock_sts = Mock()
+        mock_boto_client.return_value = mock_sts
+
+        error_response = {'Error': {'Code': 'AccessDenied', 'Message': 'Access denied'}}
+        mock_sts.assume_role.side_effect = ClientError(error_response, 'AssumeRole')
+
+        self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
+        self.kendra_service._client = None
+
+        with pytest.raises(RuntimeError, match="Role assumption failed: AccessDenied"):
+            self.kendra_service._get_kendra_client()
+
+        assert self.kendra_service._client is None
+
+    @patch('src.services.kendra_service.boto3.client')
+    def test_credentials_expiration_not_updated_if_client_construction_fails(self, mock_boto_client):
+        """Test that self._credentials_expiration is only published after the
+        new Kendra client is successfully built — closing the race where an
+        unlocked reader could see a fresh expiration paired with a stale
+        (about-to-be-replaced) client object."""
+        mock_sts = Mock()
+        mock_sts.assume_role.return_value = {
+            'Credentials': {
+                'AccessKeyId': 'ASIA123456789',
+                'SecretAccessKey': 'secret123',
+                'SessionToken': 'token123',
+                'Expiration': '2024-01-01T12:00:00Z'
+            }
+        }
+
+        def boto_client_side_effect(service_name, **kwargs):
+            if service_name == 'sts':
+                return mock_sts
+            raise RuntimeError("boto3 client construction failed")
+
+        mock_boto_client.side_effect = boto_client_side_effect
+
+        self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
+        self.kendra_service._client = None
+
+        with pytest.raises(RuntimeError, match="boto3 client construction failed"):
+            self.kendra_service._get_kendra_client()
+
+        # STS succeeded and returned a fresh expiration, but the Kendra client
+        # itself never got built — the new expiration must not be published.
+        assert self.kendra_service._credentials_expiration is None
 
     @patch('src.services.kendra_service.boto3.client')
     def test_get_kendra_client_with_role_assumption(self, mock_boto_client):
