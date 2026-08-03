@@ -173,11 +173,21 @@ class TestKendraAssumeRole:
     def test_boto_config_creation(self):
         """Test boto configuration creation."""
         config = self.kendra_service._get_boto_config()
-        
+
         assert config is not None
         # Verify config has expected timeout settings
         assert hasattr(config, 'read_timeout')
         assert hasattr(config, 'connect_timeout')
+
+    def test_sts_boto_config_has_bounded_timeouts_and_retries(self):
+        """Test the STS client config has bounded timeouts/retries so a hung STS
+        cannot stall every thread waiting on the credential-refresh lock."""
+        config = self.kendra_service._get_sts_boto_config()
+
+        assert config is not None
+        assert config.connect_timeout == 5
+        assert config.read_timeout == 10
+        assert config.retries == {"max_attempts": 2, "mode": "standard"}
 
     @patch('src.services.kendra_service.boto3.client')
     def test_assume_kendra_role_sts_client_uses_sts_max_pool_connections(self, mock_boto_client):
@@ -192,14 +202,18 @@ class TestKendraAssumeRole:
                 'Expiration': '2024-01-01T12:00:00Z'
             }
         }
+        original_role_arn = self.kendra_service.settings.kendra_role_arn
         self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
 
-        self.kendra_service._assume_kendra_role()
+        try:
+            self.kendra_service._assume_kendra_role()
 
-        sts_call = mock_boto_client.call_args
-        assert sts_call[0][0] == 'sts'
-        assert 'config' in sts_call[1]
-        assert sts_call[1]['config'].max_pool_connections == self.kendra_service.settings.sts_max_pool_connections
+            sts_call = mock_boto_client.call_args
+            assert sts_call[0][0] == 'sts'
+            assert 'config' in sts_call[1]
+            assert sts_call[1]['config'].max_pool_connections == self.kendra_service.settings.sts_max_pool_connections
+        finally:
+            self.kendra_service.settings.kendra_role_arn = original_role_arn
 
     @patch('src.services.kendra_service.boto3.client')
     def test_concurrent_get_kendra_client_calls_assume_role_once(self, mock_boto_client):
@@ -235,11 +249,15 @@ class TestKendraAssumeRole:
             }
         }
 
+        original_role_arn = self.kendra_service.settings.kendra_role_arn
         self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
         self.kendra_service._client = None
 
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            clients = list(pool.map(lambda _: self.kendra_service._get_kendra_client(), range(10)))
+        try:
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                clients = list(pool.map(lambda _: self.kendra_service._get_kendra_client(), range(10)))
 
-        assert mock_sts.assume_role.call_count == 1
-        assert all(c is mock_kendra for c in clients)
+            assert mock_sts.assume_role.call_count == 1
+            assert all(c is mock_kendra for c in clients)
+        finally:
+            self.kendra_service.settings.kendra_role_arn = original_role_arn

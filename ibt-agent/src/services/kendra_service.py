@@ -57,7 +57,12 @@ class KendraService:
 
     def _get_sts_boto_config(self) -> Config:
         """Get boto3 configuration for the STS client used in role assumption."""
-        return Config(max_pool_connections=self.settings.sts_max_pool_connections)
+        return Config(
+            max_pool_connections=self.settings.sts_max_pool_connections,
+            connect_timeout=5,
+            read_timeout=10,
+            retries={"max_attempts": 2, "mode": "standard"},
+        )
 
     def _assume_kendra_role(self) -> Dict[str, str]:
         """Assume the Kendra role and return temporary credentials."""
