@@ -178,3 +178,68 @@ class TestKendraAssumeRole:
         # Verify config has expected timeout settings
         assert hasattr(config, 'read_timeout')
         assert hasattr(config, 'connect_timeout')
+
+    @patch('src.services.kendra_service.boto3.client')
+    def test_assume_kendra_role_sts_client_uses_sts_max_pool_connections(self, mock_boto_client):
+        """Test the STS client used for role assumption is configured with sts_max_pool_connections."""
+        mock_sts = Mock()
+        mock_boto_client.return_value = mock_sts
+        mock_sts.assume_role.return_value = {
+            'Credentials': {
+                'AccessKeyId': 'ASIA123456789',
+                'SecretAccessKey': 'secret123',
+                'SessionToken': 'token123',
+                'Expiration': '2024-01-01T12:00:00Z'
+            }
+        }
+        self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
+
+        self.kendra_service._assume_kendra_role()
+
+        sts_call = mock_boto_client.call_args
+        assert sts_call[0][0] == 'sts'
+        assert 'config' in sts_call[1]
+        assert sts_call[1]['config'].max_pool_connections == self.kendra_service.settings.sts_max_pool_connections
+
+    @patch('src.services.kendra_service.boto3.client')
+    def test_concurrent_get_kendra_client_calls_assume_role_once(self, mock_boto_client):
+        """Test that concurrent calls to _get_kendra_client with expired credentials
+        only trigger one assume_role call, not one per caller."""
+        from concurrent.futures import ThreadPoolExecutor
+        import time as time_module
+        from datetime import datetime, timezone, timedelta
+
+        mock_sts = Mock()
+        mock_kendra = Mock()
+
+        def boto_client_side_effect(service_name, **kwargs):
+            if service_name == 'sts':
+                time_module.sleep(0.05)  # simulate network latency, widens the race window
+                return mock_sts
+            elif service_name == 'kendra':
+                return mock_kendra
+            return Mock()
+
+        mock_boto_client.side_effect = boto_client_side_effect
+        # NOTE: Expiration must be a real, future-dated datetime (not the string literal
+        # used elsewhere in this file). _credentials_expired() subtracts a timedelta from
+        # it, which raises TypeError on a string, and a past-dated value would make every
+        # call look "expired," forcing repeated assume_role calls and defeating the very
+        # assertion (call_count == 1) this test makes.
+        mock_sts.assume_role.return_value = {
+            'Credentials': {
+                'AccessKeyId': 'ASIA123456789',
+                'SecretAccessKey': 'secret123',
+                'SessionToken': 'token123',
+                'Expiration': datetime.now(timezone.utc) + timedelta(hours=1)
+            }
+        }
+
+        self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
+        self.kendra_service._client = None
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            clients = list(pool.map(lambda _: self.kendra_service._get_kendra_client(), range(10)))
+
+        assert mock_sts.assume_role.call_count == 1
+        assert all(c is mock_kendra for c in clients)

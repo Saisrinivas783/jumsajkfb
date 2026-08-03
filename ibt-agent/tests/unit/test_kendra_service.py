@@ -21,7 +21,14 @@ class TestKendraService:
         
         # Verify the client was created
         assert mock_boto.called
-    
+
+    @patch('src.services.kendra_service.boto3.client')
+    def test_get_boto_config_uses_kendra_max_pool_connections(self, mock_boto):
+        """Test _get_boto_config sets max_pool_connections from settings."""
+        service = KendraService('test-index', 'us-east-1')
+        config = service._get_boto_config()
+        assert config.max_pool_connections == service.settings.kendra_max_pool_connections
+
     @patch('boto3.client')
     def test_get_ncct_ids_by_product_success(self, mock_boto):
         """Test get_ncct_ids_by_product returns only NCCT IDs with AttributeFilter."""

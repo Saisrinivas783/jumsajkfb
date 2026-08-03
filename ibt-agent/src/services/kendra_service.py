@@ -1,6 +1,7 @@
 """Direct AWS Kendra integration without fallback logic."""
 
 import boto3
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from botocore.exceptions import ClientError
@@ -36,7 +37,8 @@ class KendraService:
         self._client: Optional[boto3.client] = None
         self._assumed_credentials: Optional[dict] = None
         self._credentials_expiration: Optional[datetime] = None
-        
+        self._client_lock = threading.Lock()
+
         if index_id and region:
             self.index_id = index_id
             self.region = region
@@ -45,13 +47,18 @@ class KendraService:
             self.region = self.settings.aws_region
     
     def _get_boto_config(self) -> Config:
-        """Get boto3 configuration with timeout and retry settings."""
+        """Get boto3 configuration with timeout, retry, and pool settings."""
         return Config(
             read_timeout=300,
             connect_timeout=10,
             retries={"max_attempts": 3, "mode": "adaptive"},
+            max_pool_connections=self.settings.kendra_max_pool_connections,
         )
-    
+
+    def _get_sts_boto_config(self) -> Config:
+        """Get boto3 configuration for the STS client used in role assumption."""
+        return Config(max_pool_connections=self.settings.sts_max_pool_connections)
+
     def _assume_kendra_role(self) -> Dict[str, str]:
         """Assume the Kendra role and return temporary credentials."""
         if not self.settings.kendra_role_arn:
@@ -60,7 +67,7 @@ class KendraService:
         try:
             logger.info(f"Assuming Kendra role: {self.settings.kendra_role_arn}")
             
-            sts_client = boto3.client('sts', region_name=self.region)
+            sts_client = boto3.client('sts', region_name=self.region, config=self._get_sts_boto_config())
             
             response = sts_client.assume_role(
                 RoleArn=self.settings.kendra_role_arn,
@@ -93,22 +100,16 @@ class KendraService:
             return True
         return datetime.now(timezone.utc) >= self._credentials_expiration - self.CREDENTIALS_REFRESH_BUFFER
 
-    def _get_kendra_client(self) -> boto3.client:
-        """Get Kendra client with appropriate credentials."""
-        if self._client is not None and (not self.settings.kendra_role_arn or not self._credentials_expired()):
-            return self._client
-        
-        if self._client is not None and self.settings.kendra_role_arn and self._credentials_expired():
-            logger.info("Assumed role credentials expired or expiring soon, refreshing...")
-        
+    def _refresh_client_locked(self) -> boto3.client:
+        """Refresh (or create) the Kendra client. Must be called while holding self._client_lock."""
         logger.info(f"Initializing Kendra client: region={self.region}, index_id={self.index_id}")
-        
+
         if self.settings.kendra_role_arn:
             logger.info("Using role assumption for Kendra access")
             try:
                 credentials = self._assume_kendra_role()
                 self._assumed_credentials = credentials
-                
+
                 self._client = boto3.client(
                     'kendra',
                     region_name=self.region,
@@ -117,7 +118,7 @@ class KendraService:
                 )
             except Exception as e:
                 logger.error(f"Role assumption failed, falling back to default credentials: {e}")
-                
+
                 self._client = boto3.client(
                     'kendra',
                     region_name=self.region,
@@ -130,8 +131,24 @@ class KendraService:
                 region_name=self.region,
                 config=self._get_boto_config()
             )
-        
+
         return self._client
+
+    def _get_kendra_client(self) -> boto3.client:
+        """Get Kendra client with appropriate credentials (thread-safe)."""
+        # Fast path: valid cached client, no lock needed.
+        if self._client is not None and (not self.settings.kendra_role_arn or not self._credentials_expired()):
+            return self._client
+
+        with self._client_lock:
+            # Re-check inside the lock: another thread may have just refreshed it.
+            if self._client is not None and (not self.settings.kendra_role_arn or not self._credentials_expired()):
+                return self._client
+
+            if self._client is not None and self.settings.kendra_role_arn and self._credentials_expired():
+                logger.info("Assumed role credentials expired or expiring soon, refreshing...")
+
+            return self._refresh_client_locked()
     
     @property
     def client(self) -> boto3.client:
