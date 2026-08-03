@@ -53,6 +53,30 @@ class TestKendraServiceEdgeCases:
                 assert isinstance(service1, KendraService)
                 assert isinstance(service2, KendraService)
     
+    def test_get_kendra_service_concurrent_first_calls_construct_only_one_instance(self):
+        """Test that concurrent first calls to get_kendra_service() construct
+        exactly one KendraService instance, not one per racing thread."""
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+        import src.services.kendra_service as mod
+
+        original_init = KendraService.__init__
+
+        def delayed_init(self, *args, **kwargs):
+            time.sleep(0.05)  # widen the construction race window
+            original_init(self, *args, **kwargs)
+
+        original_instance = mod._kendra_service
+        mod._kendra_service = None
+        try:
+            with patch.object(KendraService, '__init__', delayed_init):
+                with ThreadPoolExecutor(max_workers=10) as pool:
+                    instances = list(pool.map(lambda _: get_kendra_service(), range(10)))
+
+            assert all(instance is instances[0] for instance in instances)
+        finally:
+            mod._kendra_service = original_instance
+
     @patch('src.services.kendra_service.get_settings')
     def test_kendra_service_settings_integration(self, mock_get_settings):
         """Test KendraService integrates with settings correctly."""

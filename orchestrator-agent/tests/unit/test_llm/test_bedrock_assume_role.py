@@ -38,19 +38,25 @@ class TestBedrockAssumeRole:
         self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
         
         # Test role assumption
-        credentials = self.chat_models._assume_bedrock_role()
-        
+        credentials, expiration = self.chat_models._assume_bedrock_role()
+
         # Verify STS call - use the actual session name from settings
         mock_sts.assume_role.assert_called_once_with(
             RoleArn='arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role',
             RoleSessionName=self.chat_models.settings.bedrock_session_name,
             DurationSeconds=3600
         )
-        
+
         # Verify returned credentials
         assert credentials['aws_access_key_id'] == 'ASIA123456789'
         assert credentials['aws_secret_access_key'] == 'secret123'
         assert credentials['aws_session_token'] == 'token123'
+        assert expiration == '2024-01-01T12:00:00Z'
+
+        # _assume_bedrock_role no longer sets self._credentials_expiration as
+        # a side effect — the caller (_refresh_client_locked) publishes it
+        # only after the new client is built, closing the stale-client race.
+        assert self.chat_models._credentials_expiration is None
 
     def test_assume_bedrock_role_no_arn(self):
         """Test role assumption when no ARN is configured."""
@@ -91,6 +97,40 @@ class TestBedrockAssumeRole:
         # Test role assumption failure
         with pytest.raises(RuntimeError, match="Role assumption failed: Unexpected error"):
             self.chat_models._assume_bedrock_role()
+
+    @patch('src.llm.client.boto3.client')
+    def test_credentials_expiration_not_updated_if_client_construction_fails(self, mock_boto_client):
+        """Test that self._credentials_expiration is only published after the
+        new Bedrock client is successfully built — closing the race where an
+        unlocked reader could see a fresh expiration paired with a stale
+        (about-to-be-replaced) client object."""
+        mock_sts = Mock()
+        mock_sts.assume_role.return_value = {
+            'Credentials': {
+                'AccessKeyId': 'ASIA123456789',
+                'SecretAccessKey': 'secret123',
+                'SessionToken': 'token123',
+                'Expiration': '2024-01-01T12:00:00Z'
+            }
+        }
+
+        def boto_client_side_effect(service_name, **kwargs):
+            if service_name == 'sts':
+                return mock_sts
+            raise RuntimeError("boto3 client construction failed")
+
+        mock_boto_client.side_effect = boto_client_side_effect
+
+        self.chat_models.settings.bedrock_role_arn = 'arn:aws:iam::157539276568:role/ibt-ai-eks-bedrock-role'
+        self.chat_models._client = None
+
+        with pytest.raises(RuntimeError, match="boto3 client construction failed"):
+            self.chat_models._get_bedrock_client()
+
+        # STS succeeded and returned a fresh expiration, but the Bedrock
+        # client itself never got built — the new expiration must not be
+        # published.
+        assert self.chat_models._credentials_expiration is None
 
     @patch('src.llm.client.boto3.client')
     def test_get_bedrock_client_with_role_assumption(self, mock_boto_client):

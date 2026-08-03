@@ -1,6 +1,6 @@
 import threading
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 
 import boto3
 from botocore.config import Config
@@ -49,32 +49,38 @@ class ChatModels:
             return True
         return datetime.now(timezone.utc) >= self._credentials_expiration - self.CREDENTIALS_REFRESH_BUFFER
 
-    def _assume_bedrock_role(self) -> dict:
-        """Assume the Bedrock role and return temporary credentials."""
+    def _assume_bedrock_role(self) -> Tuple[dict, datetime]:
+        """Assume the Bedrock role and return temporary credentials and their expiration.
+
+        Does not set self._credentials_expiration directly. The caller
+        (_refresh_client_locked) assigns self._client before publishing the
+        new expiration, so an unlocked reader never observes a fresh
+        expiration paired with the stale, about-to-be-replaced client.
+        """
         if not self.settings.bedrock_role_arn:
             raise ValueError("BEDROCK_ROLE_ARN is not configured")
 
         try:
             logger.info(f"Assuming Bedrock role: {self.settings.bedrock_role_arn}")
-            
+
             sts_client = boto3.client('sts', region_name=self.settings.aws_region, config=self._get_sts_boto_config())
-            
+
             response = sts_client.assume_role(
                 RoleArn=self.settings.bedrock_role_arn,
                 RoleSessionName=self.settings.bedrock_session_name,
                 DurationSeconds=self.settings.bedrock_role_duration
             )
-            
+
             credentials = response['Credentials']
-            self._credentials_expiration = credentials['Expiration']
-            logger.info(f"Successfully assumed Bedrock role. Session expires at: {credentials['Expiration']}")
-            
+            expiration = credentials['Expiration']
+            logger.info(f"Successfully assumed Bedrock role. Session expires at: {expiration}")
+
             return {
                 'aws_access_key_id': credentials['AccessKeyId'],
                 'aws_secret_access_key': credentials['SecretAccessKey'],
                 'aws_session_token': credentials['SessionToken']
-            }
-            
+            }, expiration
+
         except ClientError as e:
             error_code = e.response['Error']['Code']
             logger.error(f"Failed to assume Bedrock role {self.settings.bedrock_role_arn}: {error_code}")
@@ -89,15 +95,21 @@ class ChatModels:
 
         if self.settings.bedrock_role_arn:
             logger.info("Using role assumption for Bedrock access")
-            credentials = self._assume_bedrock_role()
+            credentials, expiration = self._assume_bedrock_role()
             self._assumed_credentials = credentials
 
+            # Assign the new client before publishing the new expiration.
+            # If a reader takes the unlocked fast path in between, it sees
+            # either the old client + old (still-expired) expiration, or
+            # the new client + new expiration — never new expiration paired
+            # with the stale client.
             self._client = boto3.client(
                 service_name="bedrock-runtime",
                 region_name=self.settings.aws_region,
                 config=self._get_boto_config(),
                 **credentials
             )
+            self._credentials_expiration = expiration
         else:
             logger.info("Using default AWS credentials for Bedrock access")
             self._client = boto3.client(
@@ -215,11 +227,16 @@ class ChatModels:
 
 
 _chat_models: Optional[ChatModels] = None
+_chat_models_lock = threading.Lock()
 
 
 def get_chat_models() -> ChatModels:
-    """Return the singleton ChatModels instance."""
+    """Return the singleton ChatModels instance (thread-safe)."""
     global _chat_models
-    if _chat_models is None:
-        _chat_models = ChatModels()
-    return _chat_models
+    if _chat_models is not None:
+        return _chat_models
+
+    with _chat_models_lock:
+        if _chat_models is None:
+            _chat_models = ChatModels()
+        return _chat_models

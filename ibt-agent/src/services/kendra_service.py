@@ -3,7 +3,7 @@
 import boto3
 import threading
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from botocore.exceptions import ClientError
 from botocore.config import Config
 from src.config.settings import get_settings
@@ -64,32 +64,38 @@ class KendraService:
             retries={"max_attempts": 2, "mode": "standard"},
         )
 
-    def _assume_kendra_role(self) -> Dict[str, str]:
-        """Assume the Kendra role and return temporary credentials."""
+    def _assume_kendra_role(self) -> Tuple[Dict[str, str], datetime]:
+        """Assume the Kendra role and return temporary credentials and their expiration.
+
+        Does not set self._credentials_expiration directly. The caller
+        (_refresh_client_locked) assigns self._client before publishing the
+        new expiration, so an unlocked reader never observes a fresh
+        expiration paired with the stale, about-to-be-replaced client.
+        """
         if not self.settings.kendra_role_arn:
             raise ValueError("KENDRA_ROLE_ARN is not configured")
-        
+
         try:
             logger.info(f"Assuming Kendra role: {self.settings.kendra_role_arn}")
-            
+
             sts_client = boto3.client('sts', region_name=self.region, config=self._get_sts_boto_config())
-            
+
             response = sts_client.assume_role(
                 RoleArn=self.settings.kendra_role_arn,
                 RoleSessionName=self.settings.kendra_session_name,
                 DurationSeconds=self.settings.kendra_role_duration
             )
-            
+
             credentials = response['Credentials']
-            self._credentials_expiration = credentials['Expiration']
-            logger.info(f"Successfully assumed Kendra role. Session expires at: {credentials['Expiration']}")
-            
+            expiration = credentials['Expiration']
+            logger.info(f"Successfully assumed Kendra role. Session expires at: {expiration}")
+
             return {
                 'aws_access_key_id': credentials['AccessKeyId'],
                 'aws_secret_access_key': credentials['SecretAccessKey'],
                 'aws_session_token': credentials['SessionToken']
-            }
-            
+            }, expiration
+
         except ClientError as e:
             error_code = e.response['Error']['Code']
             error_msg = e.response['Error']['Message']
@@ -106,29 +112,32 @@ class KendraService:
         return datetime.now(timezone.utc) >= self._credentials_expiration - self.CREDENTIALS_REFRESH_BUFFER
 
     def _refresh_client_locked(self) -> boto3.client:
-        """Refresh (or create) the Kendra client. Must be called while holding self._client_lock."""
+        """Refresh (or create) the Kendra client. Must be called while holding self._client_lock.
+
+        Role-assumption failures are not caught here and propagate to the
+        caller — there is no silent fallback to default AWS credentials.
+        A broken KENDRA_ROLE_ARN should fail loudly rather than quietly
+        serving Kendra results under a different (possibly wrong) identity.
+        """
         logger.info(f"Initializing Kendra client: region={self.region}, index_id={self.index_id}")
 
         if self.settings.kendra_role_arn:
             logger.info("Using role assumption for Kendra access")
-            try:
-                credentials = self._assume_kendra_role()
-                self._assumed_credentials = credentials
+            credentials, expiration = self._assume_kendra_role()
+            self._assumed_credentials = credentials
 
-                self._client = boto3.client(
-                    'kendra',
-                    region_name=self.region,
-                    config=self._get_boto_config(),
-                    **credentials
-                )
-            except Exception as e:
-                logger.error(f"Role assumption failed, falling back to default credentials: {e}")
-
-                self._client = boto3.client(
-                    'kendra',
-                    region_name=self.region,
-                    config=self._get_boto_config()
-                )
+            # Assign the new client before publishing the new expiration.
+            # If a reader takes the unlocked fast path in between, it sees
+            # either the old client + old (still-expired) expiration, or
+            # the new client + new expiration — never new expiration paired
+            # with the stale client.
+            self._client = boto3.client(
+                'kendra',
+                region_name=self.region,
+                config=self._get_boto_config(),
+                **credentials
+            )
+            self._credentials_expiration = expiration
         else:
             logger.info("Using default AWS credentials for Kendra access")
             self._client = boto3.client(
@@ -240,14 +249,19 @@ class KendraService:
             logger.error(f"Error extracting NCCT IDs for product {product_id}: {str(e)}")
             raise RuntimeError(f"Kendra search failed for product {product_id}: {str(e)}") from e
     
-_kendra_service = None
+_kendra_service: Optional[KendraService] = None
+_kendra_service_lock = threading.Lock()
 
 def get_kendra_service() -> KendraService:
-    """Get singleton KendraService instance."""
+    """Get singleton KendraService instance (thread-safe)."""
     global _kendra_service
-    if _kendra_service is None:
-        _kendra_service = KendraService()
-    return _kendra_service
+    if _kendra_service is not None:
+        return _kendra_service
+
+    with _kendra_service_lock:
+        if _kendra_service is None:
+            _kendra_service = KendraService()
+        return _kendra_service
 
 def get_ncct_ids_by_product(query: str, product_id: str = None) -> List[str]:
     """Get NCCT IDs from Kendra search filtered by product."""
