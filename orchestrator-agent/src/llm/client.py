@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -23,13 +24,19 @@ class ChatModels:
         self._client: Optional[boto3.client] = None
         self._assumed_credentials: Optional[dict] = None
         self._credentials_expiration: Optional[datetime] = None
+        self._client_lock = threading.Lock()
 
     def _get_boto_config(self) -> Config:
         return Config(
             read_timeout=self.settings.bedrock_read_timeout,
             connect_timeout=self.settings.bedrock_connect_timeout,
             retries={"max_attempts": self.settings.bedrock_max_retries, "mode": "adaptive"},
+            max_pool_connections=self.settings.bedrock_max_pool_connections,
         )
+
+    def _get_sts_boto_config(self) -> Config:
+        """Get boto3 configuration for the STS client used in role assumption."""
+        return Config(max_pool_connections=self.settings.sts_max_pool_connections)
 
     def _credentials_expired(self) -> bool:
         """Check if assumed credentials are expired or about to expire."""
@@ -45,7 +52,7 @@ class ChatModels:
         try:
             logger.info(f"Assuming Bedrock role: {self.settings.bedrock_role_arn}")
             
-            sts_client = boto3.client('sts', region_name=self.settings.aws_region)
+            sts_client = boto3.client('sts', region_name=self.settings.aws_region, config=self._get_sts_boto_config())
             
             response = sts_client.assume_role(
                 RoleArn=self.settings.bedrock_role_arn,
@@ -71,21 +78,15 @@ class ChatModels:
             logger.error(f"Unexpected error during role assumption: {str(e)}")
             raise RuntimeError(f"Role assumption failed: {str(e)}") from e
 
-    def _get_bedrock_client(self) -> boto3.client:
-        if self._client is not None and (not self.settings.bedrock_role_arn or not self._credentials_expired()):
-            return self._client
-
-        if self._client is not None and self.settings.bedrock_role_arn and self._credentials_expired():
-            logger.info("Assumed role credentials expired or expiring soon, refreshing...")
-
+    def _refresh_client_locked(self) -> boto3.client:
+        """Refresh (or create) the Bedrock client. Must be called while holding self._client_lock."""
         logger.info(f"Initializing Bedrock client: region={self.settings.aws_region}")
-        
-        # Check if role assumption is configured
+
         if self.settings.bedrock_role_arn:
             logger.info("Using role assumption for Bedrock access")
             credentials = self._assume_bedrock_role()
             self._assumed_credentials = credentials
-            
+
             self._client = boto3.client(
                 service_name="bedrock-runtime",
                 region_name=self.settings.aws_region,
@@ -99,8 +100,24 @@ class ChatModels:
                 region_name=self.settings.aws_region,
                 config=self._get_boto_config(),
             )
-        
+
         return self._client
+
+    def _get_bedrock_client(self) -> boto3.client:
+        """Get Bedrock client with appropriate credentials (thread-safe)."""
+        # Fast path: valid cached client, no lock needed.
+        if self._client is not None and (not self.settings.bedrock_role_arn or not self._credentials_expired()):
+            return self._client
+
+        with self._client_lock:
+            # Re-check inside the lock: another thread may have just refreshed it.
+            if self._client is not None and (not self.settings.bedrock_role_arn or not self._credentials_expired()):
+                return self._client
+
+            if self._client is not None and self.settings.bedrock_role_arn and self._credentials_expired():
+                logger.info("Assumed role credentials expired or expiring soon, refreshing...")
+
+            return self._refresh_client_locked()
 
     def bedrock_model(
         self,
