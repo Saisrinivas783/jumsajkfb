@@ -20,11 +20,9 @@ def health(
     agent: HybridIBTAgent = Depends(get_ibt),
 ):
     """Detailed health check endpoint."""
-    mode_info = agent.get_mode_info()
     return {
         "status": STATUS_HEALTHY,
         "service": SERVICE_NAME.lower().replace(" - ", "-"),
-        "current_mode": mode_info["current_mode"],
-        "kendra_index_id": mode_info["kendra_index_id"],
-        "aws_region": mode_info["aws_region"]
+        "kendra_index_id": agent.kendra_index_id,
+        "aws_region": agent.aws_region
     }

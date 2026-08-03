@@ -20,25 +20,6 @@ class TestKendraServiceEdgeCases:
 
     
     @patch('src.services.kendra_service.boto3.client')
-    def test_search_missing_result_items(self, mock_boto):
-        """Test search with missing ResultItems in response."""
-        mock_client = MagicMock()
-        mock_client.query.return_value = {}  # No ResultItems key
-        mock_boto.return_value = mock_client
-        
-        service = KendraService()
-        # Disable role assumption for this test
-        service.settings.kendra_role_arn = None
-        service._client = None  # Reset client to force re-initialization
-        
-        result = service.search("test query")
-        
-        assert result['success'] is True
-        assert len(result['results']) == 0
-    
-
-    
-    @patch('src.services.kendra_service.boto3.client')
     def test_search_boto3_client_error(self, mock_boto):
         """Test search with boto3 client creation error."""
         mock_boto.side_effect = Exception("AWS credentials not found")

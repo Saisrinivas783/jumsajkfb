@@ -6,31 +6,6 @@ GET http://localhost:8000/IbtAgent/v2/ping
 
 ###
 
-### Get Current Mode
-GET http://localhost:8000/IbtAgent/v2/mode
-
-###
-
-### Set Mode to Direct Kendra
-POST http://localhost:8000/IbtAgent/v2/mode
-Content-Type: application/json
-
-{
-  "use_llm": false
-}
-
-###
-
-### Set Mode to LLM Enhanced
-POST http://localhost:8000/IbtAgent/v2/mode
-Content-Type: application/json
-
-{
-  "use_llm": true
-}
-
-###
-
 ### Process Benefits Query (Direct Mode)
 POST http://localhost:8000/IbtAgent/v2/invocations
 Content-Type: application/json
@@ -82,11 +57,11 @@ Content-Type: application/json
 
 ###
 
-### Test Error Handling - Invalid Request
+### Test Error Handling - Missing context
 POST http://localhost:8000/IbtAgent/v2/invocations
 Content-Type: application/json
 
 {
+  "userPrompt": "What are my dental benefits?",
   "sessionId": "sess-004"
-  // Missing required userPrompt field
 }

@@ -6,11 +6,6 @@ from typing import List, Dict, Any, Optional
 from botocore.exceptions import ClientError
 from botocore.config import Config
 from src.config.settings import get_settings
-from src.config.constants import (
-    DEFAULT_PAGE_SIZE,
-    NCCT_ID_KEYS, SERVICE_NAME_KEYS,
-    NO_EXCERPT_MESSAGE, PROCESSING_ERROR_MESSAGE
-)
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -142,45 +137,7 @@ class KendraService:
     def client(self) -> boto3.client:
         """Get the Kendra client (lazy initialization)."""
         return self._get_kendra_client()
-    
-    def search(self, query: str) -> Dict[str, Any]:
-        """Search Kendra and return formatted results."""
-        try:
-            logger.info(f"Searching Kendra index {self.index_id} with query: {query[:100]}...")
-            
-            response = self.client.query(
-                IndexId=self.index_id,
-                QueryText=query,
-                PageSize=self.settings.kendra_page_size
-            )
-            
-            if response is None:
-                logger.error("Kendra returned None response")
-                return {'success': False, 'results': [], 'error': 'Kendra returned None response'}
-            
-            raw_items = response.get('ResultItems', [])
-            logger.info(f"Kendra returned {len(raw_items)} raw items for query: '{query}'")
-            
-            if not raw_items:
-                logger.info("No results found for query")
-                return {'success': True, 'results': []}
-            
-            results = self._format_results(raw_items)
-            logger.info(f"Kendra search completed. Formatted {len(results)} results from {len(raw_items)} raw items")
-            
-            return {
-                'success': True,
-                'results': results
-            }
-            
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            logger.error(f"Kendra API error: {error_code} - {str(e)}")
-            return {'success': False, 'results': [], 'error': f'Kendra API error: {error_code}'}
-        except Exception as e:
-            logger.error(f"Unexpected error during Kendra search: {str(e)}")
-            return {'success': False, 'results': [], 'error': f'Search error: {str(e)}'}
-    
+
     def _build_attribute_filter(self, product_config: Dict[str, str]) -> Dict[str, Any]:
         """Build Kendra AttributeFilter for product filtering."""
         if not product_config:
@@ -261,91 +218,6 @@ class KendraService:
             logger.error(f"Error extracting NCCT IDs for product {product_id}: {str(e)}")
             raise RuntimeError(f"Kendra search failed for product {product_id}: {str(e)}") from e
     
-    def _format_results(self, items: List[Dict]) -> List[Dict[str, Any]]:
-        """Format Kendra results - accept ANY data structure."""
-        results = []
-        logger.info(f"Processing {len(items)} raw Kendra items")
-        
-        for i, item in enumerate(items):
-            try:
-                logger.info(f"Processing item {i+1}: {list(item.keys())}")
-                
-                title = None
-                excerpt = None
-                ncct_id = None
-                service_name = None
-                
-                if item.get('DocumentTitle', {}).get('Text'):
-                    title = item['DocumentTitle']['Text']
-                    logger.info(f"Found title: {title}")
-                
-                if item.get('DocumentExcerpt', {}).get('Text'):
-                    excerpt = item['DocumentExcerpt']['Text']
-                    logger.info(f"Found excerpt: {excerpt[:100]}...")
-                
-                attributes = {}
-                for attr in item.get('DocumentAttributes', []):
-                    try:
-                        key = attr.get('Key', '')
-                        value = attr.get('Value', {})
-                        
-                        if 'StringValue' in value:
-                            attributes[key] = value['StringValue']
-                        elif 'StringListValue' in value:
-                            attributes[key] = ', '.join(value['StringListValue'])
-                        elif 'LongValue' in value:
-                            attributes[key] = str(value['LongValue'])
-                        elif 'DateValue' in value:
-                            attributes[key] = str(value['DateValue'])
-                            
-                        logger.info(f"Attribute {key}: {attributes.get(key, 'N/A')}")
-                    except Exception as e:
-                        logger.warning(f"Error processing attribute: {e}")
-                
-                ncct_id = None
-                for key in NCCT_ID_KEYS:
-                    if attributes.get(key):
-                        ncct_id = attributes[key]
-                        break
-                if not ncct_id:
-                    ncct_id = item.get('DocumentId') or f'DOC_{i+1}'
-                
-                service_name = None
-                for key in SERVICE_NAME_KEYS:
-                    if attributes.get(key):
-                        service_name = attributes[key]
-                        break
-                if not service_name:
-                    service_name = title or f'Document {i+1}'
-                
-                confidence = item.get('ScoreAttributes', {}).get('ScoreConfidence')
-                
-                result = {
-                    'ncct_id': ncct_id,
-                    'service_name': service_name,
-                    'excerpt': excerpt or NO_EXCERPT_MESSAGE,
-                    'confidence_score': confidence,
-                    'all_attributes': attributes,
-                    'document_uri': item.get('DocumentURI', ''),
-                    'item_type': item.get('Type', 'DOCUMENT')
-                }
-                
-                results.append(result)
-                logger.info(f"Added result: {service_name} (ID: {ncct_id})")
-                
-            except Exception as e:
-                logger.error(f"Error processing item {i+1}: {e}")
-                results.append({
-                    'ncct_id': f'ERR_{i+1}',
-                    'service_name': f'Kendra Document {i+1}',
-                    'excerpt': PROCESSING_ERROR_MESSAGE,
-                    'confidence_score': 'LOW',
-                    'error': str(e)
-                })
-        
-        logger.info(f"Successfully formatted {len(results)} results from {len(items)} raw items")
-        return results
-
 _kendra_service = None
 
 def get_kendra_service() -> KendraService:

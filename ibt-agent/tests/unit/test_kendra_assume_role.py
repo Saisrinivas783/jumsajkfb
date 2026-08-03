@@ -170,65 +170,6 @@ class TestKendraAssumeRole:
         # Verify same client instance returned
         assert client1 == client2 == mock_kendra
 
-    @patch('src.services.kendra_service.boto3.client')
-    def test_search_with_assume_role(self, mock_boto_client):
-        """Test search functionality with assume role."""
-        # Mock STS and Kendra clients
-        mock_sts = Mock()
-        mock_kendra = Mock()
-        
-        def boto_client_side_effect(service_name, **kwargs):
-            if service_name == 'sts':
-                return mock_sts
-            elif service_name == 'kendra':
-                return mock_kendra
-            return Mock()
-        
-        mock_boto_client.side_effect = boto_client_side_effect
-        
-        # Mock successful role assumption
-        mock_response = {
-            'Credentials': {
-                'AccessKeyId': 'ASIA123456789',
-                'SecretAccessKey': 'secret123',
-                'SessionToken': 'token123',
-                'Expiration': '2024-01-01T12:00:00Z'
-            }
-        }
-        mock_sts.assume_role.return_value = mock_response
-        
-        # Mock Kendra search response
-        mock_kendra.query.return_value = {
-            'ResultItems': [
-                {
-                    'DocumentAttributes': [
-                        {'Key': 'NCCT_ID', 'Value': {'StringValue': 'NCCT123'}},
-                        {'Key': 'Service_Name', 'Value': {'StringValue': 'Test Service'}}
-                    ],
-                    'DocumentExcerpt': {'Text': 'Test excerpt'},
-                    'ScoreAttributes': {'ScoreConfidence': 'HIGH'}
-                }
-            ]
-        }
-        
-        # Set up role ARN
-        self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
-        
-        # Reset client
-        self.kendra_service._client = None
-        
-        # Test search
-        result = self.kendra_service.search('test query')
-        
-        # Verify role assumption occurred
-        mock_sts.assume_role.assert_called_once()
-        
-        # Verify search was successful
-        assert result['success'] is True
-        assert len(result['results']) == 1
-        assert result['results'][0]['ncct_id'] == 'NCCT123'
-        assert result['results'][0]['service_name'] == 'Test Service'
-
     def test_boto_config_creation(self):
         """Test boto configuration creation."""
         config = self.kendra_service._get_boto_config()

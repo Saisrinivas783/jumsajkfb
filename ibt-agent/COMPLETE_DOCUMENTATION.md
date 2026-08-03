@@ -1,20 +1,19 @@
 # IBT Agent - Complete Documentation
 
 ## Overview
-The IBT (Insurance Benefits Tool) Agent is a hybrid AI-powered service that processes insurance benefits queries using AWS Kendra semantic search and optional LLM enhancement.
+The IBT (Insurance Benefits Tool) Agent is an AI-powered service that processes insurance benefits queries using AWS Kendra semantic search.
 
 ## Architecture
-- **Hybrid Processing**: Supports both Direct Kendra mode and LLM-enhanced mode
+- **Direct Kendra Processing**: Product-filtered AWS Kendra semantic search
 - **Department Filtering**: Maps department IDs to specific plan types and brochures
-- **AWS Integration**: Uses Kendra for search, Bedrock for LLM processing
+- **AWS Integration**: Uses Kendra for search
 - **FastAPI Framework**: RESTful API with automatic documentation
 
 ## Key Features
-- ✅ **Dual Processing Modes**: Direct Kendra search or LLM-enhanced responses
 - ✅ **Department-Based Filtering**: Results filtered by plan type and brochure
 - ✅ **NCCT ID Response Format**: Returns arrays of NCCT IDs for direct integration
 - ✅ **Role-Based AWS Access**: Supports IAM role assumption for cross-account access
-- ✅ **Comprehensive Testing**: 138 test cases with 100% pass rate
+- ✅ **Comprehensive Testing**: Full test coverage
 - ✅ **Clean Architecture**: No fallback logic, streamlined codebase
 
 ## API Endpoints
@@ -34,15 +33,10 @@ Content-Type: application/json
   "sessionId": "sess-001",
   "context": {
     "userName": "John Doe",
-    "departmentId": "1"
+    "userType": "member",
+    "productId": "1"
   }
 }
-```
-
-### Mode Management
-```http
-GET /IbtAgent/v2/mode        # Get current mode
-POST /IbtAgent/v2/mode       # Set processing mode
 ```
 
 ## Department Mapping
@@ -53,27 +47,13 @@ POST /IbtAgent/v2/mode       # Set processing mode
 
 ## Response Formats
 
-### Direct Kendra Mode
-Returns array of NCCT IDs:
+Returns an array of NCCT IDs:
 ```json
 {
   "sessionId": "sess-001",
   "responseText": ["NCCT123", "NCCT456"],
   "confidence": 8.0,
-  "success": true,
-  "mode": "direct_kendra"
-}
-```
-
-### LLM Enhanced Mode
-Returns HTML formatted text:
-```json
-{
-  "sessionId": "sess-001", 
-  "responseText": "<a href='NCCT123'>Dental Coverage</a>",
-  "confidence": 8.0,
-  "success": true,
-  "mode": "llm_enhanced"
+  "success": true
 }
 ```
 
@@ -85,13 +65,6 @@ Returns HTML formatted text:
 AWS_REGION=us-east-1
 KENDRA_INDEX_ID=your-kendra-index-id
 KENDRA_ROLE_ARN=arn:aws:iam::ACCOUNT:role/KendraRole
-
-# Processing Mode
-USE_LLM=true  # or false for direct mode
-
-# Bedrock Configuration (LLM mode only)
-BEDROCK_MODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0
-BEDROCK_ROLE_ARN=arn:aws:iam::ACCOUNT:role/BedrockRole
 ```
 
 ## Development
@@ -160,11 +133,10 @@ ibt-agent/
 │   ├── config/          # Settings and constants
 │   ├── schemas/         # Pydantic data models
 │   ├── services/        # AWS service integrations
-│   ├── tools/           # Langchain tools
 │   └── utils/           # Logging utilities
 ├── tests/
-│   ├── unit/            # Unit tests (126 tests)
-│   └── integration/     # Integration tests (12 tests)
+│   ├── unit/            # Unit tests
+│   └── integration/     # Integration tests
 ├── scripts/             # HTTP request examples
 ├── requirements.txt     # Python dependencies
 ├── Dockerfile          # Container configuration
@@ -176,18 +148,10 @@ ibt-agent/
 ### Common Issues
 1. **AWS Credentials**: Ensure proper IAM roles and permissions
 2. **Kendra Access**: Verify index ID and region configuration
-3. **Mode Switching**: Use the `/mode` endpoint to change processing modes
-4. **Empty Results**: Check department ID mapping and query format
-
-### Debug Mode
-Use the debug endpoint for troubleshooting:
-```python
-from src.services.kendra_service import debug_kendra_search
-result = debug_kendra_search("test query")
-```
+3. **Empty Results**: Check department ID mapping and query format
 
 ## Performance
-- **Test Execution**: ~2.8 seconds for 138 tests
+- **Test Execution**: Fast, comprehensive test coverage
 - **API Response Time**: Typically < 2 seconds for direct mode
 - **Memory Usage**: Optimized for container deployment
 - **Concurrent Requests**: Supports multiple simultaneous queries
@@ -202,4 +166,4 @@ result = debug_kendra_search("test query")
 
 **Last Updated**: April 2026  
 **Version**: 2.0.0  
-**Test Coverage**: 138 tests passing (100%)
+**Test Coverage**: Comprehensive test coverage passing
