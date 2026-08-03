@@ -18,6 +18,7 @@ from src.schemas.registry import ToolDefinition
 from src.schemas.api import AgentMetadata, MetadataItem
 from src.config.settings import get_settings
 from src.exceptions import ToolTimeoutError, ToolUnavailableError
+from src.http_client import get_http_client
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -178,34 +179,34 @@ def _call_tool_api(
     logger.info(f"Calling {tool_name} at {endpoint}")
 
     try:
-        with httpx.Client(timeout=settings.tool_timeout) as client:
-            payload = {
-                "userPrompt": effective_query or state.query,
-                "sessionId": state.session_id,
-                "context": {
-                    "userName": state.context.userName,
-                    "userType": state.context.userType,
-                    "source": state.context.source,
-                    "productId": state.context.productId,
-                },
-            }
-            if state.context.promptId:
-                payload["context"]["promptId"] = state.context.promptId
+        client = get_http_client()
+        payload = {
+            "userPrompt": effective_query or state.query,
+            "sessionId": state.session_id,
+            "context": {
+                "userName": state.context.userName,
+                "userType": state.context.userType,
+                "source": state.context.source,
+                "productId": state.context.productId,
+            },
+        }
+        if state.context.promptId:
+            payload["context"]["promptId"] = state.context.promptId
 
-            headers = {"Content-Type": "application/json"}
-            if state.authorization:
-                headers["Authorization"] = state.authorization
+        headers = {"Content-Type": "application/json"}
+        if state.authorization:
+            headers["Authorization"] = state.authorization
 
-            response = client.post(endpoint, json=payload, headers=headers)
-            response.raise_for_status()
+        response = client.post(endpoint, json=payload, headers=headers)
+        response.raise_for_status()
 
-            data = response.json()
-            logger.info("Received response from %s: %s", tool_name, data)
-            response_text = data.get("responseText", "")
-            raw_metadata = data.get("metadata", [])
-            agent_metadata = [AgentMetadata.model_validate(m) for m in raw_metadata]
+        data = response.json()
+        logger.info("Received response from %s: %s", tool_name, data)
+        response_text = data.get("responseText", "")
+        raw_metadata = data.get("metadata", [])
+        agent_metadata = [AgentMetadata.model_validate(m) for m in raw_metadata]
 
-            return response_text, agent_metadata
+        return response_text, agent_metadata
 
     except httpx.TimeoutException:
         raise ToolTimeoutError(tool_name, settings.tool_timeout)
