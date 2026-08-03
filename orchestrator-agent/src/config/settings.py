@@ -81,6 +81,28 @@ class OrchestratorSettings(BaseSettings):
         description="Maximum retry attempts for Bedrock API calls"
     )
 
+    # Concurrency Configuration
+    bedrock_max_pool_connections: int = Field(
+        default=40,
+        gt=0,
+        description="Max HTTP connection pool size for the Bedrock boto3 client"
+    )
+    sts_max_pool_connections: int = Field(
+        default=20,
+        gt=0,
+        description="Max HTTP connection pool size for the STS boto3 client (Bedrock role assumption)"
+    )
+    tool_http_max_connections: int = Field(
+        default=40,
+        gt=0,
+        description="Max total connections in the shared pooled HTTP client used to call tool APIs"
+    )
+    tool_http_max_keepalive_connections: int = Field(
+        default=20,
+        gt=0,
+        description="Max keep-alive (reusable, idle) connections in the shared pooled HTTP client"
+    )
+
     # Extended Thinking Configuration (for Claude 3.5+ models)
     extended_thinking_enabled: bool = Field(
         default=False,
