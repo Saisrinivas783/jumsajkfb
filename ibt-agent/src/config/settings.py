@@ -64,6 +64,18 @@ class IBTSettings(BaseSettings):
         description="Number of documents to retrieve from Kendra per query"
     )
 
+    # Concurrency Configuration
+    kendra_max_pool_connections: int = Field(
+        default=40,
+        gt=0,
+        description="Max HTTP connection pool size for the Kendra boto3 client"
+    )
+    sts_max_pool_connections: int = Field(
+        default=20,
+        gt=0,
+        description="Max HTTP connection pool size for the STS boto3 client (Kendra role assumption)"
+    )
+
     # DXAIService Configuration
     dxai_base_url: str = Field(
         default="https://dxai-service.internal",

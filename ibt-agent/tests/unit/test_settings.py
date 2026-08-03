@@ -56,3 +56,21 @@ class TestIBTSettings:
         assert settings.dxai_base_url == "https://test-dxai.com"
         assert settings.dxai_timeout == 60
         assert settings.dxai_max_retries == 2
+
+    def test_concurrency_pool_defaults(self):
+        """Test concurrency pool-size settings default values."""
+        settings = IBTSettings()
+
+        assert settings.kendra_max_pool_connections == 40
+        assert settings.sts_max_pool_connections == 20
+
+    @patch.dict('os.environ', {
+        'KENDRA_MAX_POOL_CONNECTIONS': '60',
+        'STS_MAX_POOL_CONNECTIONS': '30',
+    })
+    def test_concurrency_pool_environment_variable_override(self):
+        """Test that concurrency pool-size settings can be overridden via environment variables."""
+        settings = IBTSettings()
+
+        assert settings.kendra_max_pool_connections == 60
+        assert settings.sts_max_pool_connections == 30
