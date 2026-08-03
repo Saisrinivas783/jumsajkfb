@@ -43,7 +43,7 @@ class TestKendraAssumeRole:
         # Verify STS call
         mock_sts.assume_role.assert_called_once_with(
             RoleArn='arn:aws:iam::054940911799:role/ibt-ai-index-role',
-            RoleSessionName='ibt-agent-kendra-session',
+            RoleSessionName='ibt-agent-kendra',
             DurationSeconds=3600
         )
 
