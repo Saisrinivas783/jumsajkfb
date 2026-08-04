@@ -51,7 +51,7 @@ class KendraService:
         return Config(
             read_timeout=300,
             connect_timeout=10,
-            retries={"max_attempts": 3, "mode": "adaptive"},
+            retries={"max_attempts": 3, "mode": "standard"},
             max_pool_connections=self.settings.kendra_max_pool_connections,
         )
 
