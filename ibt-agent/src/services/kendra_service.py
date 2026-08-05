@@ -2,19 +2,16 @@
 
 import boto3
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from botocore.exceptions import ClientError
 from botocore.config import Config
 from src.config.settings import get_settings
+from src.exceptions import UpstreamServiceError
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-class QueryLimitExceededError(Exception):
-    """Raised when Kendra query limit is exceeded."""
-    pass
 
 
 # Product to Plan/Brochure mapping
@@ -51,7 +48,7 @@ class KendraService:
         return Config(
             read_timeout=300,
             connect_timeout=10,
-            retries={"max_attempts": 3, "mode": "adaptive"},
+            retries={"max_attempts": 3, "mode": "standard"},
             max_pool_connections=self.settings.kendra_max_pool_connections,
         )
 
@@ -78,6 +75,7 @@ class KendraService:
         try:
             logger.info(f"Assuming Kendra role: {self.settings.kendra_role_arn}")
 
+            sts_start = time.perf_counter()
             sts_client = boto3.client('sts', region_name=self.region, config=self._get_sts_boto_config())
 
             response = sts_client.assume_role(
@@ -85,10 +83,11 @@ class KendraService:
                 RoleSessionName=self.settings.kendra_session_name,
                 DurationSeconds=self.settings.kendra_role_duration
             )
+            sts_elapsed_ms = (time.perf_counter() - sts_start) * 1000
 
             credentials = response['Credentials']
             expiration = credentials['Expiration']
-            logger.info(f"Successfully assumed Kendra role. Session expires at: {expiration}")
+            logger.info(f"Successfully assumed Kendra role in {sts_elapsed_ms:.2f}ms. Session expires at: {expiration}")
 
             return {
                 'aws_access_key_id': credentials['AccessKeyId'],
@@ -100,10 +99,10 @@ class KendraService:
             error_code = e.response['Error']['Code']
             error_msg = e.response['Error']['Message']
             logger.error(f"Failed to assume Kendra role {self.settings.kendra_role_arn}: {error_code} - {error_msg}")
-            raise RuntimeError(f"Role assumption failed: {error_code} - {error_msg}") from e
+            raise UpstreamServiceError("kendra", f"Role assumption failed: {error_code} - {error_msg}") from e
         except Exception as e:
             logger.error(f"Unexpected error during role assumption: {str(e)}")
-            raise RuntimeError(f"Role assumption failed: {str(e)}") from e
+            raise UpstreamServiceError("kendra", f"Role assumption failed: {str(e)}") from e
     
     def _credentials_expired(self) -> bool:
         """Check if assumed credentials are expired or about to expire."""
@@ -120,6 +119,7 @@ class KendraService:
         serving Kendra results under a different (possibly wrong) identity.
         """
         logger.info(f"Initializing Kendra client: region={self.region}, index_id={self.index_id}")
+        refresh_start = time.perf_counter()
 
         if self.settings.kendra_role_arn:
             logger.info("Using role assumption for Kendra access")
@@ -131,21 +131,29 @@ class KendraService:
             # either the old client + old (still-expired) expiration, or
             # the new client + new expiration — never new expiration paired
             # with the stale client.
+            client_create_start = time.perf_counter()
             self._client = boto3.client(
                 'kendra',
                 region_name=self.region,
                 config=self._get_boto_config(),
                 **credentials
             )
+            client_create_elapsed_ms = (time.perf_counter() - client_create_start) * 1000
             self._credentials_expiration = expiration
+            logger.info(f"boto3 Kendra client construction took {client_create_elapsed_ms:.2f}ms")
         else:
             logger.info("Using default AWS credentials for Kendra access")
+            client_create_start = time.perf_counter()
             self._client = boto3.client(
                 'kendra',
                 region_name=self.region,
                 config=self._get_boto_config()
             )
+            client_create_elapsed_ms = (time.perf_counter() - client_create_start) * 1000
+            logger.info(f"boto3 Kendra client construction took {client_create_elapsed_ms:.2f}ms")
 
+        total_refresh_elapsed_ms = (time.perf_counter() - refresh_start) * 1000
+        logger.info(f"Kendra client refresh (total) took {total_refresh_elapsed_ms:.2f}ms")
         return self._client
 
     def _get_kendra_client(self) -> boto3.client:
@@ -154,7 +162,12 @@ class KendraService:
         if self._client is not None and (not self.settings.kendra_role_arn or not self._credentials_expired()):
             return self._client
 
+        lock_wait_start = time.perf_counter()
         with self._client_lock:
+            lock_wait_elapsed_ms = (time.perf_counter() - lock_wait_start) * 1000
+            if lock_wait_elapsed_ms > 50:
+                logger.info(f"Waited {lock_wait_elapsed_ms:.2f}ms to acquire Kendra client lock (contention from concurrent refresh)")
+
             # Re-check inside the lock: another thread may have just refreshed it.
             if self._client is not None and (not self.settings.kendra_role_arn or not self._credentials_expired()):
                 return self._client
@@ -197,34 +210,48 @@ class KendraService:
     
     def get_ncct_ids_by_product(self, query: str, product_id: str = None) -> List[str]:
         """Search Kendra with product filter and return only NCCT IDs."""
+        method_start = time.perf_counter()
         try:
             logger.info(f"Getting NCCT IDs for product {product_id} with query: {query[:50]}...")
-            
+
             product_config = None
             attribute_filter = None
-            
+
             if product_id and product_id in PRODUCT_MAPPING:
                 product_config = PRODUCT_MAPPING[product_id]
                 attribute_filter = self._build_attribute_filter(product_config)
                 logger.info(f"Product {product_id} requires plan: {product_config['plan']}, brochure: {product_config['brochure']}")
-            
+
             query_params = {
                 'IndexId': self.index_id,
                 'QueryText': query,
                 'PageSize': self.settings.kendra_page_size,
                 'RequestedDocumentAttributes': ['NCCTID']
             }
-            
+
             if attribute_filter:
                 query_params['AttributeFilter'] = attribute_filter
-            
-            response = self.client.query(**query_params)
+
+            client_start = time.perf_counter()
+            client = self.client
+            client_elapsed_ms = (time.perf_counter() - client_start) * 1000
+
+            query_start = time.perf_counter()
+            response = client.query(**query_params)
+            query_elapsed_ms = (time.perf_counter() - query_start) * 1000
+
+            logger.info(
+                f"Kendra timing for product {product_id}: "
+                f"client_acquire={client_elapsed_ms:.2f}ms, query_call={query_elapsed_ms:.2f}ms"
+            )
+
             items = response.get('ResultItems', [])
-            
+
             if not items:
                 logger.info("No results found")
                 return []
-            
+
+            extract_start = time.perf_counter()
             ncct_ids = [
                 attr['Value']['StringValue']
                 for item in items
@@ -232,22 +259,25 @@ class KendraService:
                 if (attr['Key'] == 'NCCTID' and attr.get('Value', {}).get('StringValue') and
                     item.get('ScoreAttributes', {}).get('ScoreConfidence') in ['VERY_HIGH', 'HIGH', 'MEDIUM'])
             ]
-            
-            logger.info(f"Extracted {len(ncct_ids)} NCCT IDs for product {product_id}")
+            extract_elapsed_ms = (time.perf_counter() - extract_start) * 1000
+            total_elapsed_ms = (time.perf_counter() - method_start) * 1000
+
+            logger.info(
+                f"Extracted {len(ncct_ids)} NCCT IDs for product {product_id} "
+                f"(extract={extract_elapsed_ms:.2f}ms, total={total_elapsed_ms:.2f}ms)"
+            )
             return ncct_ids
-            
+
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == 'ThrottlingException':
                 logger.warning(f"Query limit exceeded for product {product_id}")
-                raise QueryLimitExceededError("Kendra query limit exceeded") from e
-            logger.error(f"Kendra API error for product {product_id}: {error_code} - {str(e)}")
-            raise RuntimeError(f"Kendra search failed for product {product_id}: {error_code}") from e
-        except QueryLimitExceededError:
-            raise
+            else:
+                logger.error(f"Kendra API error for product {product_id}: {error_code} - {str(e)}")
+            raise UpstreamServiceError("kendra", f"Kendra search failed for product {product_id}: {error_code}") from e
         except Exception as e:
             logger.error(f"Error extracting NCCT IDs for product {product_id}: {str(e)}")
-            raise RuntimeError(f"Kendra search failed for product {product_id}: {str(e)}") from e
+            raise UpstreamServiceError("kendra", f"Kendra search failed for product {product_id}: {str(e)}") from e
     
 _kendra_service: Optional[KendraService] = None
 _kendra_service_lock = threading.Lock()

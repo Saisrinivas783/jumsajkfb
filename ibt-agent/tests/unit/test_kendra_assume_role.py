@@ -8,6 +8,7 @@ from botocore.exceptions import ClientError
 
 from src.services.kendra_service import KendraService
 from src.config.settings import get_settings
+from src.exceptions import UpstreamServiceError
 
 
 class TestKendraAssumeRole:
@@ -79,7 +80,7 @@ class TestKendraAssumeRole:
         self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
         
         # Test role assumption failure
-        with pytest.raises(RuntimeError, match="Role assumption failed: AccessDenied"):
+        with pytest.raises(UpstreamServiceError, match="Role assumption failed: AccessDenied"):
             self.kendra_service._assume_kendra_role()
 
     @patch('src.services.kendra_service.boto3.client')
@@ -95,7 +96,7 @@ class TestKendraAssumeRole:
         self.kendra_service.settings.kendra_role_arn = 'arn:aws:iam::054940911799:role/ibt-ai-index-role'
         self.kendra_service._client = None
 
-        with pytest.raises(RuntimeError, match="Role assumption failed: AccessDenied"):
+        with pytest.raises(UpstreamServiceError, match="Role assumption failed: AccessDenied"):
             self.kendra_service._get_kendra_client()
 
         assert self.kendra_service._client is None

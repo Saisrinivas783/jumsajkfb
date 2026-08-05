@@ -1,7 +1,7 @@
 """Unit tests for custom exceptions."""
 
 import pytest
-from src.exceptions import IBTError
+from src.exceptions import IBTError, UpstreamServiceError
 
 class TestIBTError:
     """Tests for base IBTError exception."""
@@ -29,3 +29,16 @@ class TestIBTError:
         error = IBTError("Error with unicode: 测试")
         assert "测试" in error.message
         assert "测试" in str(error)
+
+
+class TestUpstreamServiceError:
+    """Tests for UpstreamServiceError."""
+
+    def test_is_ibt_error_subclass(self):
+        assert issubclass(UpstreamServiceError, IBTError)
+
+    def test_stores_service_and_message(self):
+        exc = UpstreamServiceError("kendra", "boom")
+        assert exc.service == "kendra"
+        assert exc.message == "boom"
+        assert str(exc) == "boom"

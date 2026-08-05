@@ -95,44 +95,35 @@ class TestProcessQuery:
     @patch('src.agent.hybrid_ibt.HybridIBTAgent._process_direct_kendra')
     @patch('src.services.kendra_service.get_kendra_service')
     @patch('src.agent.hybrid_ibt.get_settings')
-    def test_process_query_limit_exceeded(self, mock_settings, mock_get_kendra_service, mock_direct_process):
-        """Test that QueryLimitExceededError returns proper error message."""
+    def test_process_query_propagates_upstream_service_error(self, mock_settings, mock_get_kendra_service, mock_direct_process):
+        """Test that UpstreamServiceError (e.g. throttling) propagates uncaught for FastAPI to map to a 500."""
         mock_settings.return_value.kendra_role_arn = None
         mock_settings.return_value.aws_region = 'us-east-1'
         mock_settings.return_value.kendra_index_id = 'test-index'
         mock_get_kendra_service.return_value = MagicMock()
 
-        from src.services.kendra_service import QueryLimitExceededError
-        mock_direct_process.side_effect = QueryLimitExceededError("Kendra query limit exceeded")
+        from src.exceptions import UpstreamServiceError
+        mock_direct_process.side_effect = UpstreamServiceError("kendra", "Kendra search failed for product 1: ThrottlingException")
 
         agent = HybridIBTAgent()
 
-        result = agent.process_query("dental benefits", "sess-limit", {"productId": "1"})
-
-        assert result['success'] is False
-        assert result['sessionId'] == 'sess-limit'
-        assert result['confidence'] == 0.0
-        assert isinstance(result['responseText'], list)
-        assert "maximum number of search requests" in result['responseText'][0]
+        with pytest.raises(UpstreamServiceError):
+            agent.process_query("dental benefits", "sess-limit", {"productId": "1"})
 
     @patch('src.agent.hybrid_ibt.HybridIBTAgent._process_direct_kendra')
     @patch('src.services.kendra_service.get_kendra_service')
     @patch('src.agent.hybrid_ibt.get_settings')
-    def test_process_query_exception_handling(self, mock_settings, mock_get_kendra_service, mock_direct_process):
-        # Mock settings
+    def test_process_query_unexpected_exception_propagates(self, mock_settings, mock_get_kendra_service, mock_direct_process):
+        """Test that non-UpstreamServiceError exceptions also propagate (no catch-all here anymore)."""
         mock_settings.return_value.kendra_role_arn = None
         mock_settings.return_value.aws_region = 'us-east-1'
         mock_settings.return_value.kendra_index_id = 'test-index'
 
         mock_get_kendra_service.return_value = MagicMock()
 
-        from src.agent.hybrid_ibt import KendraSearchError
-        mock_direct_process.side_effect = KendraSearchError("Test error")
+        mock_direct_process.side_effect = ValueError("Test error")
 
         agent = HybridIBTAgent()
 
-        result = agent.process_query("test", "sess-001", {"productId": "1"})
-
-        assert result['success'] is False
-        assert "technical difficulties" in result['responseText'][0]
-        assert result['sessionId'] == 'sess-001'
+        with pytest.raises(ValueError, match="Test error"):
+            agent.process_query("test", "sess-001", {"productId": "1"})

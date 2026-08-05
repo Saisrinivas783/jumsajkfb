@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.api.app import create_app
 from src.config.constants import SERVICE_NAME, SERVICE_VERSION, API_PREFIX
+from src.exceptions import UpstreamServiceError
 
 class TestCreateApp:
     """Tests for create_app function."""
@@ -105,3 +106,35 @@ class TestCreateApp:
         client = TestClient(app)
         response = client.get(f"{API_PREFIX}/ping")
         assert response.status_code == 200
+
+
+class TestExceptionHandlers:
+    """Tests for app-level exception handlers."""
+
+    def test_upstream_service_error_maps_to_500(self):
+        """Test UpstreamServiceError raised from a route is converted to a structured 500."""
+        app = create_app()
+
+        @app.get("/__test_upstream_error")
+        def _raise_upstream_error():
+            raise UpstreamServiceError("kendra", "boom")
+
+        client = TestClient(app)
+        response = client.get("/__test_upstream_error")
+
+        assert response.status_code == 500
+        assert response.json() == {"detail": "Upstream service error (kendra): boom"}
+
+    def test_unhandled_exception_maps_to_generic_500(self):
+        """Test an arbitrary unhandled exception is converted to a generic 500, not a bare crash."""
+        app = create_app()
+
+        @app.get("/__test_unhandled_error")
+        def _raise_unhandled_error():
+            raise ValueError("unexpected")
+
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.get("/__test_unhandled_error")
+
+        assert response.status_code == 500
+        assert response.json() == {"detail": "Internal server error"}
