@@ -189,49 +189,52 @@ class TestKendraService:
     
     @patch('boto3.client')
     def test_get_ncct_ids_by_product_exception_handling(self, mock_boto):
-        """Test get_ncct_ids_by_product raises exception on error."""
+        """Test get_ncct_ids_by_product raises UpstreamServiceError on error."""
+        from src.exceptions import UpstreamServiceError
+
         mock_client = MagicMock()
         mock_client.query.side_effect = Exception('Kendra error')
         mock_boto.return_value = mock_client
-        
+
         service = KendraService('test-index', 'us-east-1')
-        
-        with pytest.raises(RuntimeError, match="Kendra search failed for product 1: Kendra error"):
+
+        with pytest.raises(UpstreamServiceError, match="Kendra search failed for product 1: Kendra error"):
             service.get_ncct_ids_by_product('test query', '1')
-    
+
     @patch('boto3.client')
-    def test_get_ncct_ids_by_product_throttling_raises_query_limit_exceeded(self, mock_boto):
-        """Test ThrottlingException raises QueryLimitExceededError."""
+    def test_get_ncct_ids_by_product_throttling_raises_upstream_service_error(self, mock_boto):
+        """Test ThrottlingException raises UpstreamServiceError, same as any other Kendra failure."""
         from botocore.exceptions import ClientError
-        from src.services.kendra_service import QueryLimitExceededError
-        
+        from src.exceptions import UpstreamServiceError
+
         mock_client = MagicMock()
         mock_client.query.side_effect = ClientError(
             {'Error': {'Code': 'ThrottlingException', 'Message': 'Rate exceeded'}},
             'Query'
         )
         mock_boto.return_value = mock_client
-        
+
         service = KendraService('test-index', 'us-east-1')
-        
-        with pytest.raises(QueryLimitExceededError, match="Kendra query limit exceeded"):
+
+        with pytest.raises(UpstreamServiceError, match="Kendra search failed for product 1: ThrottlingException"):
             service.get_ncct_ids_by_product('dental benefits', '1')
-    
+
     @patch('boto3.client')
     def test_get_ncct_ids_by_product_client_error_non_throttling(self, mock_boto):
-        """Test non-throttling ClientError raises RuntimeError."""
+        """Test non-throttling ClientError raises UpstreamServiceError."""
         from botocore.exceptions import ClientError
-        
+        from src.exceptions import UpstreamServiceError
+
         mock_client = MagicMock()
         mock_client.query.side_effect = ClientError(
             {'Error': {'Code': 'ValidationException', 'Message': 'Invalid query'}},
             'Query'
         )
         mock_boto.return_value = mock_client
-        
+
         service = KendraService('test-index', 'us-east-1')
-        
-        with pytest.raises(RuntimeError, match="Kendra search failed for product 1: ValidationException"):
+
+        with pytest.raises(UpstreamServiceError, match="Kendra search failed for product 1: ValidationException"):
             service.get_ncct_ids_by_product('dental benefits', '1')
     
     @patch('src.services.kendra_service.get_kendra_service')
@@ -242,6 +245,25 @@ class TestKendraService:
         mock_get_service.return_value = mock_service
         
         result = get_ncct_ids_by_product('dental benefits', '1')
-        
+
         assert result == ['NCCT123', 'NCCT456']
         mock_service.get_ncct_ids_by_product.assert_called_once_with('dental benefits', '1')
+
+    @patch('src.services.kendra_service.boto3.client')
+    def test_assume_kendra_role_client_error_raises_upstream_service_error(self, mock_boto):
+        """Test role assumption ClientError raises UpstreamServiceError."""
+        from botocore.exceptions import ClientError
+        from src.exceptions import UpstreamServiceError
+
+        mock_sts_client = MagicMock()
+        mock_sts_client.assume_role.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDenied', 'Message': 'Not authorized'}},
+            'AssumeRole'
+        )
+        mock_boto.return_value = mock_sts_client
+
+        service = KendraService('test-index', 'us-east-1')
+        service.settings.kendra_role_arn = 'arn:aws:iam::123456789012:role/test-role'
+
+        with pytest.raises(UpstreamServiceError, match="Role assumption failed: AccessDenied"):
+            service._assume_kendra_role()

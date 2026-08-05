@@ -8,14 +8,10 @@ from typing import List, Dict, Any, Optional, Tuple
 from botocore.exceptions import ClientError
 from botocore.config import Config
 from src.config.settings import get_settings
+from src.exceptions import UpstreamServiceError
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-class QueryLimitExceededError(Exception):
-    """Raised when Kendra query limit is exceeded."""
-    pass
 
 
 # Product to Plan/Brochure mapping
@@ -103,10 +99,10 @@ class KendraService:
             error_code = e.response['Error']['Code']
             error_msg = e.response['Error']['Message']
             logger.error(f"Failed to assume Kendra role {self.settings.kendra_role_arn}: {error_code} - {error_msg}")
-            raise RuntimeError(f"Role assumption failed: {error_code} - {error_msg}") from e
+            raise UpstreamServiceError("kendra", f"Role assumption failed: {error_code} - {error_msg}") from e
         except Exception as e:
             logger.error(f"Unexpected error during role assumption: {str(e)}")
-            raise RuntimeError(f"Role assumption failed: {str(e)}") from e
+            raise UpstreamServiceError("kendra", f"Role assumption failed: {str(e)}") from e
     
     def _credentials_expired(self) -> bool:
         """Check if assumed credentials are expired or about to expire."""
@@ -276,14 +272,12 @@ class KendraService:
             error_code = e.response['Error']['Code']
             if error_code == 'ThrottlingException':
                 logger.warning(f"Query limit exceeded for product {product_id}")
-                raise QueryLimitExceededError("Kendra query limit exceeded") from e
-            logger.error(f"Kendra API error for product {product_id}: {error_code} - {str(e)}")
-            raise RuntimeError(f"Kendra search failed for product {product_id}: {error_code}") from e
-        except QueryLimitExceededError:
-            raise
+            else:
+                logger.error(f"Kendra API error for product {product_id}: {error_code} - {str(e)}")
+            raise UpstreamServiceError("kendra", f"Kendra search failed for product {product_id}: {error_code}") from e
         except Exception as e:
             logger.error(f"Error extracting NCCT IDs for product {product_id}: {str(e)}")
-            raise RuntimeError(f"Kendra search failed for product {product_id}: {str(e)}") from e
+            raise UpstreamServiceError("kendra", f"Kendra search failed for product {product_id}: {str(e)}") from e
     
 _kendra_service: Optional[KendraService] = None
 _kendra_service_lock = threading.Lock()
