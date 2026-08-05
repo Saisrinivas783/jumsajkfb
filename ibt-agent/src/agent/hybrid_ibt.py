@@ -2,19 +2,10 @@ import time
 from typing import Dict, Any
 from src.config.messages import get_message
 from src.config.settings import get_settings
-from src.services.kendra_service import get_ncct_ids_by_product, QueryLimitExceededError
+from src.services.kendra_service import get_ncct_ids_by_product
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-# Custom exceptions
-class KendraSearchError(Exception):
-    """Raised when Kendra search operations fail."""
-    pass
-
-class QueryProcessingError(Exception):
-    """Raised when query processing fails."""
-    pass
 
 class HybridIBTAgent:
     def __init__(self):
@@ -27,49 +18,21 @@ class HybridIBTAgent:
 
         logger.info(f"Processing query with context: userName={context.get('userName')}, userType={context.get('userType')}, productId={context.get('productId')}, source={context.get('source')}")
 
-        try:
-            result = self._process_direct_kendra(user_prompt, context)
+        result = self._process_direct_kendra(user_prompt, context)
 
-            execution_time = (time.time() - start_time) * 1000
+        execution_time = (time.time() - start_time) * 1000
 
-            response = {
-                "sessionId": session_id,
-                "confidence": result.get("confidence", 0.0),
-                "responseText": result.get("response_text", ""),
-                "success": result.get("success", False),
-                "execution_time_ms": round(execution_time, 2),
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-            logger.info("IBT Agent response: session_id=%s, success=%s, confidence=%s, responseText=%s",
-                        response["sessionId"], response["success"], response["confidence"], response["responseText"])
-            return response
-
-        except QueryLimitExceededError:
-            logger.warning(f"Query limit exceeded for session {session_id}")
-            response = {
-                "sessionId": session_id,
-                "confidence": 0.0,
-                "responseText": get_message("query_limit_exceeded"),
-                "success": False,
-                "execution_time_ms": round((time.time() - start_time) * 1000, 2),
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-            logger.info("IBT Agent query limit response: session_id=%s, responseText=%s",
-                        response["sessionId"], response["responseText"])
-            return response
-        except (KendraSearchError, RuntimeError) as e:
-            logger.error(f"Query processing error: {str(e)}")
-            response = {
-                "sessionId": session_id,
-                "confidence": 0.0,
-                "responseText": get_message("service_unavailable"),
-                "success": False,
-                "execution_time_ms": round((time.time() - start_time) * 1000, 2),
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-            logger.info("IBT Agent error response: session_id=%s, success=%s, responseText=%s",
-                        response["sessionId"], response["success"], response["responseText"])
-            return response
+        response = {
+            "sessionId": session_id,
+            "confidence": result.get("confidence", 0.0),
+            "responseText": result.get("response_text", ""),
+            "success": result.get("success", False),
+            "execution_time_ms": round(execution_time, 2),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        logger.info("IBT Agent response: session_id=%s, success=%s, confidence=%s, responseText=%s",
+                    response["sessionId"], response["success"], response["confidence"], response["responseText"])
+        return response
 
     def _process_direct_kendra(self, user_prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
         product_id = context['productId']
