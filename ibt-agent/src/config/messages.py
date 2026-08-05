@@ -14,9 +14,6 @@ GENERIC_MESSAGES = {
     "service_unavailable": [
         "I'm currently experiencing technical difficulties accessing benefit information. Please try again in a few moments."
     ],
-    "query_limit_exceeded": [
-        "You have reached the maximum number of search requests allowed. Please wait a moment before trying again."
-    ]
 }
 
 def get_message(key: str):
