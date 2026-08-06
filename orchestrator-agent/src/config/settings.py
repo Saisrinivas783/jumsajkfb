@@ -92,6 +92,31 @@ class OrchestratorSettings(BaseSettings):
         gt=0,
         description="Max HTTP connection pool size for the STS boto3 client (Bedrock role assumption)"
     )
+
+    # STS Client Timeout/Retry Configuration (Bedrock role assumption)
+    sts_connect_timeout: int = Field(
+        default=5,
+        gt=0,
+        description="Connect timeout in seconds for the STS boto3 client"
+    )
+    sts_read_timeout: int = Field(
+        default=10,
+        gt=0,
+        description="Read timeout in seconds for the STS boto3 client"
+    )
+    sts_max_retries: int = Field(
+        default=2,
+        gt=0,
+        description="Maximum retry attempts for STS role-assumption calls"
+    )
+
+    # Assumed-role credential refresh buffer
+    credentials_refresh_buffer_minutes: int = Field(
+        default=5,
+        gt=0,
+        description="Refresh assumed Bedrock role credentials this many minutes before expiration"
+    )
+
     tool_http_max_connections: int = Field(
         default=40,
         gt=0,
@@ -131,10 +156,6 @@ class OrchestratorSettings(BaseSettings):
     confidence_threshold_high: float = Field(
         default=7.0,
         description="Minimum confidence to execute tool"
-    )
-    confidence_threshold_low: float = Field(
-        default=5.0,
-        description="Minimum confidence for clarification (below this = fallback)"
     )
 
     # Tool Execution Configuration

@@ -17,8 +17,6 @@ logger = get_logger(__name__)
 class ChatModels:
     """Factory for AWS Bedrock chat models with timeout/retry configuration and role assumption."""
 
-    CREDENTIALS_REFRESH_BUFFER = timedelta(minutes=5)
-
     def __init__(self):
         self.settings = orchestrator_settings
         self._client: Optional[boto3.client] = None
@@ -38,16 +36,17 @@ class ChatModels:
         """Get boto3 configuration for the STS client used in role assumption."""
         return Config(
             max_pool_connections=self.settings.sts_max_pool_connections,
-            connect_timeout=5,
-            read_timeout=10,
-            retries={"max_attempts": 2, "mode": "standard"},
+            connect_timeout=self.settings.sts_connect_timeout,
+            read_timeout=self.settings.sts_read_timeout,
+            retries={"max_attempts": self.settings.sts_max_retries, "mode": "standard"},
         )
 
     def _credentials_expired(self) -> bool:
         """Check if assumed credentials are expired or about to expire."""
         if self._credentials_expiration is None:
             return True
-        return datetime.now(timezone.utc) >= self._credentials_expiration - self.CREDENTIALS_REFRESH_BUFFER
+        buffer = timedelta(minutes=self.settings.credentials_refresh_buffer_minutes)
+        return datetime.now(timezone.utc) >= self._credentials_expiration - buffer
 
     def _assume_bedrock_role(self) -> Tuple[dict, datetime]:
         """Assume the Bedrock role and return temporary credentials and their expiration.

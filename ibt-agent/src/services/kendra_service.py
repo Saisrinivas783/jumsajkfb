@@ -26,8 +26,6 @@ PRODUCT_MAPPING = {
 
 class KendraService:
     """Direct AWS Kendra semantic search client without fallback logic."""
-    
-    CREDENTIALS_REFRESH_BUFFER = timedelta(minutes=5)
 
     def __init__(self, index_id: Optional[str] = None, region: Optional[str] = None):
         self.settings = get_settings()
@@ -42,13 +40,13 @@ class KendraService:
         else:
             self.index_id = self.settings.kendra_index_id
             self.region = self.settings.aws_region
-    
+
     def _get_boto_config(self) -> Config:
         """Get boto3 configuration with timeout, retry, and pool settings."""
         return Config(
-            read_timeout=300,
-            connect_timeout=10,
-            retries={"max_attempts": 3, "mode": "standard"},
+            read_timeout=self.settings.kendra_read_timeout,
+            connect_timeout=self.settings.kendra_connect_timeout,
+            retries={"max_attempts": self.settings.kendra_max_retries, "mode": "standard"},
             max_pool_connections=self.settings.kendra_max_pool_connections,
         )
 
@@ -56,9 +54,9 @@ class KendraService:
         """Get boto3 configuration for the STS client used in role assumption."""
         return Config(
             max_pool_connections=self.settings.sts_max_pool_connections,
-            connect_timeout=5,
-            read_timeout=10,
-            retries={"max_attempts": 2, "mode": "standard"},
+            connect_timeout=self.settings.sts_connect_timeout,
+            read_timeout=self.settings.sts_read_timeout,
+            retries={"max_attempts": self.settings.sts_max_retries, "mode": "standard"},
         )
 
     def _assume_kendra_role(self) -> Tuple[Dict[str, str], datetime]:
@@ -108,7 +106,8 @@ class KendraService:
         """Check if assumed credentials are expired or about to expire."""
         if self._credentials_expiration is None:
             return True
-        return datetime.now(timezone.utc) >= self._credentials_expiration - self.CREDENTIALS_REFRESH_BUFFER
+        buffer = timedelta(minutes=self.settings.credentials_refresh_buffer_minutes)
+        return datetime.now(timezone.utc) >= self._credentials_expiration - buffer
 
     def _refresh_client_locked(self) -> boto3.client:
         """Refresh (or create) the Kendra client. Must be called while holding self._client_lock.

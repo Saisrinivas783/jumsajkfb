@@ -12,8 +12,6 @@ class TestIBTSettings:
         settings = IBTSettings()
 
         assert settings.aws_region == "us-east-1"
-        assert settings.confidence_threshold_high == 7.0
-        assert settings.confidence_threshold_low == 5.0
         assert settings.log_level == "INFO"
 
     @patch.dict('os.environ', {
@@ -35,27 +33,17 @@ class TestIBTSettings:
         # Should be the same instance due to lru_cache
         assert settings1 is settings2
 
-    def test_confidence_thresholds(self):
-        """Test confidence threshold settings."""
-        settings = IBTSettings(
-            confidence_threshold_high=8.5,
-            confidence_threshold_low=6.0
-        )
+    def test_kendra_and_sts_client_defaults(self):
+        """Test Kendra/STS boto client timeout, retry, and refresh-buffer defaults."""
+        settings = IBTSettings()
 
-        assert settings.confidence_threshold_high == 8.5
-        assert settings.confidence_threshold_low == 6.0
-
-    def test_dxai_settings(self):
-        """Test DXAIService configuration settings."""
-        settings = IBTSettings(
-            dxai_base_url="https://test-dxai.com",
-            dxai_timeout=60,
-            dxai_max_retries=2
-        )
-
-        assert settings.dxai_base_url == "https://test-dxai.com"
-        assert settings.dxai_timeout == 60
-        assert settings.dxai_max_retries == 2
+        assert settings.kendra_read_timeout == 300
+        assert settings.kendra_connect_timeout == 10
+        assert settings.kendra_max_retries == 3
+        assert settings.sts_connect_timeout == 5
+        assert settings.sts_read_timeout == 10
+        assert settings.sts_max_retries == 2
+        assert settings.credentials_refresh_buffer_minutes == 5
 
     def test_concurrency_pool_defaults(self):
         """Test concurrency pool-size settings default values."""
