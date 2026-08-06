@@ -84,6 +84,10 @@ class TestKendraServiceEdgeCases:
         mock_settings.aws_region = "us-west-2"
         mock_settings.kendra_index_id = "test-index-456"
         mock_settings.kendra_role_arn = None  # Disable role assumption
+        mock_settings.kendra_max_pool_connections = 40
+        mock_settings.kendra_read_timeout = 300
+        mock_settings.kendra_connect_timeout = 10
+        mock_settings.kendra_max_retries = 3
         mock_get_settings.return_value = mock_settings
         
         with patch('src.services.kendra_service.boto3.client') as mock_boto:

@@ -76,28 +76,45 @@ class IBTSettings(BaseSettings):
         description="Max HTTP connection pool size for the STS boto3 client (Kendra role assumption)"
     )
 
-    # DXAIService Configuration
-    dxai_base_url: str = Field(
-        default="https://dxai-service.internal",
-        description="Base URL for DXAIService"
+    # Kendra Client Timeout/Retry Configuration
+    kendra_read_timeout: int = Field(
+        default=300,
+        gt=0,
+        description="Read timeout in seconds for the Kendra boto3 client"
     )
-    dxai_timeout: int = Field(
-        default=30,
-        description="Timeout in seconds for DXAIService calls"
+    kendra_connect_timeout: int = Field(
+        default=10,
+        gt=0,
+        description="Connect timeout in seconds for the Kendra boto3 client"
     )
-    dxai_max_retries: int = Field(
+    kendra_max_retries: int = Field(
         default=3,
-        description="Maximum retry attempts for DXAIService calls"
+        gt=0,
+        description="Maximum retry attempts for Kendra API calls"
     )
 
-    # Guard Rails Configuration
-    confidence_threshold_high: float = Field(
-        default=7.0,
-        description="Minimum confidence to execute tool"
+    # STS Client Timeout/Retry Configuration (Kendra role assumption)
+    sts_connect_timeout: int = Field(
+        default=5,
+        gt=0,
+        description="Connect timeout in seconds for the STS boto3 client"
     )
-    confidence_threshold_low: float = Field(
-        default=5.0,
-        description="Minimum confidence for clarification (below this = fallback)"
+    sts_read_timeout: int = Field(
+        default=10,
+        gt=0,
+        description="Read timeout in seconds for the STS boto3 client"
+    )
+    sts_max_retries: int = Field(
+        default=2,
+        gt=0,
+        description="Maximum retry attempts for STS role-assumption calls"
+    )
+
+    # Assumed-role credential refresh buffer
+    credentials_refresh_buffer_minutes: int = Field(
+        default=5,
+        gt=0,
+        description="Refresh assumed Kendra role credentials this many minutes before expiration"
     )
 
     # Logging Configuration
